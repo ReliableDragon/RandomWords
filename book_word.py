@@ -23,10 +23,19 @@ def txt(fn):
     return fn + '.txt'
   return fn
 
+def fetch_words(fname):
+  try:
+    words = get_words(txt(fname))
+    return words
+  except OSError:
+    print('Invalid filename!')
+    return []
+
 def wfb(fn):
   words = get_words(fn)
   cmd = ''
   quits = ['exit', 'no', 'q']
+  files = sorted(list(os.listdir()))
   while True:
     if cmd == '':
       print(random.choice(words))
@@ -36,15 +45,16 @@ def wfb(fn):
       for fn in sorted(list(os.listdir())):
         print(fn)
     elif cmd.lower().startswith('add '):
-      words += get_words(txt(cmd[4:]))
+      fname = cmd[4:]
+      print('Adding in ' + fname)
+      words = fetch_words(fname)
+    elif cmd.lower() in ['random', 'rand', 'r']:
+      fname = random.choice(files)
+      print('Opening ' + fname)
+      words = fetch_words(fname)
     else:
-      try:
-        print('Opening ' + cmd)
-        words = get_words(txt(cmd))
-        cmd = ''
-        continue
-      except OSError:
-        print('Invalid filename!')
+      print('Opening ' + cmd)
+      words = fetch_words(cmd)
     cmd = input('')
 
 wfb(args.filename)
