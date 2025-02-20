@@ -6,22 +6,24 @@ from arg import Arg
 class TestCommand(unittest.TestCase):
 
 
-  def test_init(self):
+  def test_str(self):
     arg = Arg(int)
-    cmd = Command('phloub', [arg])
+    cmd = Command.create('phloub', [arg])
     self.assertEqual(str(cmd), "Command(phloub)['Arg()[int]: None']")
 
-  def test_populate_args(self):
-    intarg = Arg(int)
-    strarg = Arg(str)
-    cmd = Command('fleebnorp', [intarg, strarg])
+  def test_validate_args(self):
+    cmd = Command.create('fleebnorp', [int, str])
     values = [1, 'two']
-    cmd.populate_args(values)
-    self.assertEqual(cmd.args[0].value, 1)
-    self.assertEqual(cmd.args[1].value, 'two')
+    cmd.validate_args(values)
 
-  def test_bad_populate(self):
+  def test_bad_len_populate(self):
     intarg = Arg(int)
-    cmd = Command('shneeble', [intarg])
+    cmd = Command.create('shneeble', [int, int])
     with self.assertRaises(ValueError):
-      cmd.populate_args([1, 2, 3])
+      cmd.validate_args([1, 2, 3])
+
+  def test_bad_type_populate(self):
+    intarg = Arg(int)
+    cmd = Command.create('shneeble', [int, int, str])
+    with self.assertRaises(ValueError):
+      cmd.validate_args([1, 2, 3])

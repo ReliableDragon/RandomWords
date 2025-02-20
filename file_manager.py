@@ -23,6 +23,10 @@ class FileManager():
     return os.path.join(self.dir, self.filename)
 
 
+  def pwd(self):
+    return self.dir
+
+
   # Adds the provided path to the current subdir.
   #
   # path: A string name of a folder in the current subdir to append, or

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch, mock_open
 
 import file_manager
 from file_manager import FileManager
+from test_util import make_mock_file
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +16,6 @@ WORD_DATA = '''apple
 bagel
 calzone
 '''
-
-def make_mock_file(filename, suffix='.txt', is_dir=False):
-    mock_file_object = MagicMock(spec=pathlib.Path)
-    mock_file_object.__str__.return_value = filename
-    mock_file_object.name = filename
-    mock_file_object.suffix = suffix
-    mock_file_object.is_dir.return_value = is_dir
-    return mock_file_object
 
 class FileManagerTest(unittest.TestCase):
 
