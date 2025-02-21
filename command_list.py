@@ -3,6 +3,9 @@ import logging
 from ls_cmd import LS
 from cd_cmd import CD
 from pwd_cmd import PWD
+from load_cmd import Load
+from dump_cmd import Dump
+from get_word_cmd import GetWord
 
 logger = logging.getLogger(__name__)
 
@@ -32,5 +35,8 @@ class CommandList():
       LS(self.fm),
       CD(self.fm),
       PWD(self.fm),
+      Load(self.fm),
+      Dump(),
+      GetWord(),
     ]
     return cmds

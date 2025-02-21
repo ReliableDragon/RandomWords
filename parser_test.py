@@ -8,6 +8,13 @@ from command import Command
 
 class ParserTest(unittest.TestCase):
 
+  def make_mock_command(self):
+    mock_command = MagicMock(spec=Command)
+    mock_command.name = 'cd'
+    mock_command.matches.side_effect = lambda a: a.startswith('cd')
+    mock_command.parse_args.side_effect = lambda a: a.split(' ')[1:]
+    return mock_command
+
   @patch('builtins.input', lambda *args: 'pooble')
   @patch.object(Parser, 'parse')
   def test_get_command(self, mock_parse):
@@ -22,28 +29,24 @@ class ParserTest(unittest.TestCase):
     mock_parse.assert_called_once_with('pooble')
 
   def test_parse(self):
+    mock_command = self.make_mock_command()
+
     cl = MagicMock(spec=CommandList)
-    mock_command = MagicMock(spec=Command)
-    cl.has_cmd.return_value = True
-    cl.get_cmd.return_value = mock_command
+    cl.cmds = {'cd': mock_command}
+    
     parser = Parser(cl)
-  
     results = parser.parse('cd a/b/c')
 
     self.assertEqual(results, (mock_command, ['a/b/c']))
-    cl.has_cmd.assert_called_once_with('cd')
-    cl.get_cmd.assert_called_once_with('cd')
 
 
   def test_parse_err(self):
+    mock_command = self.make_mock_command()
+
     cl = MagicMock(spec=CommandList)
-    mock_command = MagicMock(spec=Command)
-    cl.has_cmd.return_value = False
-    cl.get_cmd.return_value = mock_command
+    cl.cmds = {'cd': mock_command}
+    
     parser = Parser(cl)
- 
-    results = parser.parse('cd a/b/c')
+    results = parser.parse('ls a/b/c')
 
     self.assertEqual(results, (None, []))
-    cl.has_cmd.assert_called_once_with('cd')
-    cl.get_cmd.assert_not_called()

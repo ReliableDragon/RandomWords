@@ -1,7 +1,12 @@
+import re
+import logging
+
 from typing import List, Callable
 from abc import ABC, abstractmethod
 
 from arg import Arg
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_COMMAND = 'ls'
 
@@ -27,6 +32,28 @@ class Command():
     for value, arg in zip(values, self.args):
       if type(value) != arg:
         raise ValueError(f"Got incorrect arg type(s)!\nExpected: {self.args}\nBut was: {[type(v) for v in values]}")
+
+  def check_match(self, regex, line):
+    line = line.lower()
+    match = re.fullmatch(regex, line)
+    if not match:
+      return False
+    else:
+      return True
+
+  # Determine whether this command is being invoked. If this method
+  # is not overridden, defaults to the command's name plus the
+  # rest of a line if it has arguments.
+  def matches(self, line):
+    regex = self.name
+    if self.args:
+      regex += r' .*'
+    return self.check_match(regex, line)
+
+  def parse_args(self, line):
+    if not self.args: 
+      return []
+    return line.split(' ')[1:]
 
   def execute(self, args_, context):
     pass

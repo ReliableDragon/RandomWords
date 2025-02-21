@@ -11,7 +11,7 @@ ROOT_DIR = 'sources/'
 class FileManager():
 
 
-  def __init__(self, dir_ = 'sources/dicts', filename_ = '70k_words.txt'):
+  def __init__(self, dir_ = 'sources/dicts/', filename_ = '70k_words.txt'):
     self.dir = dir_
     self.filename = filename_
 
@@ -32,11 +32,13 @@ class FileManager():
   # path: A string name of a folder in the current subdir to append, or
   # '..' to move up, or '/' to return to the root.
   def cd(self, path: str) -> None:
+    if path == '..':
+      self.dir = self.dir.rsplit('/', 2)[0] + '/'
+      return
+    if path[-1] != '/':
+      path += '/'
     if path == '/':
       self.dir = ROOT_DIR
-      return
-    if path == '..':
-      self.dir = self.dir.rsplit('/', 1)[0] + '/'
       return
       
     if path[-1] != '/':
