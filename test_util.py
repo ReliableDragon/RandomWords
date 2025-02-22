@@ -12,3 +12,11 @@ def make_mock_file(filename, suffix='.txt', is_dir=False):
     mock_file_object.is_dir.return_value = is_dir
     return mock_file_object
 
+def get_mock_files():
+    folder = make_mock_file('testfolder', '', True)
+    hidden_folder = make_mock_file('.git', '', True)
+    txt_file = make_mock_file('testdict')
+    nontxt_file = make_mock_file('testimg', 'jpg')
+
+    mock_path_objects = [folder, hidden_folder, txt_file, nontxt_file] 
+    return mock_path_objects

@@ -6,6 +6,7 @@ from pwd_cmd import PWD
 from load_cmd import Load
 from dump_cmd import Dump
 from get_word_cmd import GetWord
+from load_rand_file_cmd import LoadRandFile
 
 logger = logging.getLogger(__name__)
 
@@ -38,5 +39,6 @@ class CommandList():
       Load(self.fm),
       Dump(),
       GetWord(),
+      LoadRandFile(self.fm),
     ]
     return cmds

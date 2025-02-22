@@ -17,14 +17,15 @@ class Load(FileCommand):
   def parse_args(self, line):
     return [line]
 
+  # TODO: Standardize filenames to either be
+  # relative to current directory or absolute
+  # from the root; currently they're mixed.
   def execute(self, args_, context):
     filename = args_[0]
-    self.fm.filename = filename
     words = None
     try:
-      words = self.fm.get_words()
+      words = self.fm.get_words(filename)
     except FileNotFoundError:
       print('File not found!')
-      self.fm.filename = None
       return None
     return {'words': words}
