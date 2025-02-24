@@ -6,14 +6,15 @@ import random
 
 logger = logging.getLogger(__name__)
 
-ROOT_DIR = 'sources/'
+ROOT_DIR = os.path.abspath('sources/') + '/'
 
 class FileManager():
 
 
-  def __init__(self, dir_ = 'sources/dicts/'):
-    # The dir we're working in, under the program
-    # root.
+  # dir_: str The absolute path to the source directory.
+  def __init__(self, dir_ = os.path.abspath('sources/dicts/')):
+    if dir_[-1] != '/':
+      dir_ += '/'
     self.dir = dir_
 
   ###
@@ -33,8 +34,11 @@ class FileManager():
   # path: A string name of a folder in the current subdir to append, or
   # '..' to move up, or '/' to return to the root.
   def cd(self, path: str) -> None:
+    assert self.dir.endswith('/'), 'FileManager directory doesn\'t end with a slash -- this will cause issues!'
     if path == '..':
       self.dir = self.dir.rsplit('/', 2)[0] + '/'
+      if not self.dir.startswith(ROOT_DIR):
+        self.dir = ROOT_DIR
       return
     if path[-1] != '/':
       path += '/'
@@ -74,10 +78,14 @@ class FileManager():
 
   def get_relative_name(self, filepath):
     return filepath.name.removeprefix(self.dir)
-  # Gets the contents of the current subdir.
+
+  # Gets the contents of the directory passed in, or
+  # the current directory if none is provided.
   #
-  # Returns: The Path objects in the current subdir.
-  def ls(self, dir_ = None) -> list[pathlib.Path]:
+  # Returns: String filepaths for all folders and
+  # .txt files found.
+  def ls(self, dir_ = None) -> list[str]:
+    assert self.dir.endswith('/'), 'LS was called while FileManager directory did not end in "/" -- this will cause problems!'
     if dir_ == None:
       dir_ = self.dir
     results = []
@@ -87,7 +95,7 @@ class FileManager():
         results.append(f)
       elif f.suffix == '.txt':
         results.append(f)
-    return results
+    return [str(f) for f in results]
 
 
   # Get all .txt files in or below current subdir.
@@ -126,9 +134,9 @@ class FileManager():
       return ''
 
     choice = random.choice(options)
-    fname = os.path.join(dir_, choice.name)
+    fname = os.path.join(dir_, choice)
     
-    if choice.is_dir():
+    if os.path.isdir(fname):
       return self._rand_dir(fname)
     else:
       return str(fname)

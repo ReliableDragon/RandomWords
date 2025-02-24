@@ -1,3 +1,4 @@
+import os
 import file_manager
 
 from arg import Arg
@@ -23,21 +24,30 @@ class LS(FileCommand):
       return []
     return args
 
+  # Print all relevant files under the directory passed
+  # in, interpreting it either as a rooted path if it
+  # starts with a '/' or as relative to the current
+  # directory if it does not. If no directory is passed
+  # in, then use the current directory. Prints the results
+  # in user-friendly format, meaning only the "name" and
+  # not the full path.
   def execute(self, args_, _):
     super().validate_args(args_)
-    dir_ = None
+    filename = None
     if args_:
-      dir_ = args_[0]
-      if not dir_.startswith(file_manager.ROOT_DIR):
-        dir_ = self.fm.get_path(dir_)
+      filename = args_[0]
+      if not filename.startswith(self.fm.dir):
+        filename = self.fm.get_path(filename)
     try:
-      results = self.fm.ls(dir_) 
+      results = self.fm.ls(filename) 
     except FileNotFoundError:
-      print(f"File '{dir_}' not found.")
+      print(f"File '{filename}' not found.")
       return []
-    for r in results:
-      if r.is_dir():
-        print(r.name + '/')
-      else:
-        print(r.name)
+    for path in results:
+      basename = os.path.basename(path)
+
+      if os.path.isdir(path):
+        basename += '/'
+        
+      print(basename)
     
