@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 from command_list import CommandList
 from parser import Parser
 from command import Command
+from test_command import TestCommand
+from file_manager import FileManager
 
 class ParserTest(unittest.TestCase):
 
@@ -15,38 +17,30 @@ class ParserTest(unittest.TestCase):
     mock_command.parse_args.side_effect = lambda a: a.split(' ')[1:]
     return mock_command
 
-  @patch('builtins.input', lambda *args: 'pooble')
-  @patch.object(Parser, 'parse')
-  def test_get_command(self, mock_parse):
-    cl = MagicMock(spec=CommandList)
-    mock_command = MagicMock(spec=Command)
-    mock_args = ['a', 'b', 'c']
-    mock_parse.return_value = (mock_command, mock_args)
-    parser = Parser(cl)
+  def setUp(self):
+    self.test_cmd = TestCommand()
+    self.test_cmd.name = 'pooble'
+    
+    self.fm = FileManager()
+    self.cl = CommandList(self.fm)
+    self.par = Parser(self.cl)
+    
+    self.orig_cmd_list = self.cl.cmd_list
+    self.cl.cmd_list = MagicMock(return_value=[self.test_cmd])
+    self.cl.init_cmd(self.test_cmd)
 
-    result = parser.get_command()
-    self.assertEqual(result, (mock_command, mock_args))
-    mock_parse.assert_called_once_with('pooble')
+  @patch('builtins.input', lambda *args: 'pooble ten 10')
+  def test_get_command(self):
+    result = self.par.get_command()
+    self.assertEqual(result, (self.test_cmd, ['ten', '10']))
 
   def test_parse(self):
-    mock_command = self.make_mock_command()
+    results = self.par.parse('pooble a/b/c')
 
-    cl = MagicMock(spec=CommandList)
-    cl.cmds = {'cd': mock_command}
-    
-    parser = Parser(cl)
-    results = parser.parse('cd a/b/c')
-
-    self.assertEqual(results, (mock_command, ['a/b/c']))
+    self.assertEqual(results, (self.test_cmd, ['a/b/c']))
 
 
   def test_parse_err(self):
-    mock_command = self.make_mock_command()
-
-    cl = MagicMock(spec=CommandList)
-    cl.cmds = {'cd': mock_command}
-    
-    parser = Parser(cl)
-    results = parser.parse('ls a/b/c')
+    results = self.par.parse('ls a/b/c')
 
     self.assertEqual(results, (None, []))
