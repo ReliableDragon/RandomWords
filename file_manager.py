@@ -68,7 +68,7 @@ class FileManager():
       return words
 
     except OSError:
-      print('Invalid filename!')
+      print(f'Invalid filename: {filename}')
       return []
 
 

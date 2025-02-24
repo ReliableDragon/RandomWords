@@ -13,7 +13,7 @@ class Parser():
     cmd_found = False
     while not cmd_found:
       cmd_found = True
-      raw_line = input('Input a command, or type "help" for help.\n')
+      raw_line = input()
       cmd, args_ = self.parse(raw_line)
       if cmd == None:
         print("I'm sorry, I don't understand.")
