@@ -23,6 +23,10 @@ class FileManager():
   def pwd(self):
     return self.dir
 
+  
+  def get_path(self, filename):
+    return os.path.join(self.dir, filename)
+
 
   # Adds the provided path to the current subdir.
   #
@@ -54,7 +58,7 @@ class FileManager():
   # Returns: All the words in the file, deduped, without order.
   def get_words(self, filename) -> list[str]:
     try:
-      f = open(os.path.join(self.dir, filename))
+      f = open(filename)
       txt = f.read()
       f.close()
       words = re.split('[^a-zA-Z]', txt)
@@ -68,6 +72,8 @@ class FileManager():
       return []
 
 
+  def get_relative_name(self, filepath):
+    return filepath.name.removeprefix(self.dir)
   # Gets the contents of the current subdir.
   #
   # Returns: The Path objects in the current subdir.

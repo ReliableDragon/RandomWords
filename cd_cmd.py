@@ -1,3 +1,4 @@
+from arg import Arg
 from file_command import FileCommand
 
 class CD(FileCommand):
@@ -8,7 +9,7 @@ class CD(FileCommand):
 
   @staticmethod
   def cmd_args():
-    return [str]
+    return [Arg(str)]
 
   def execute(self, args_, _):
     super().validate_args(args_)

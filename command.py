@@ -1,5 +1,6 @@
 import re
 import logging
+import itertools
 
 from typing import List, Callable
 from abc import ABC, abstractmethod
@@ -27,11 +28,9 @@ class Command():
 
 
   def validate_args(self, values: list):
-    if len(values) != len(self.args):
-      raise ValueError(f"Number of values did not match number of args!\nvalues: {values}\nargs: {self.args}")
-    for value, arg in zip(values, self.args):
-      if type(value) != arg:
-        raise ValueError(f"Got incorrect arg type(s)!\nExpected: {self.args}\nBut was: {[type(v) for v in values]}")
+    for value, arg in itertools.zip_longest(values, self.args):
+      if arg == None or not arg.validate(value):
+        raise ValueError(f"Got incorrect arg type(s)!\nExpected: {[str(arg) for arg in self.args]}\nBut was: {[type(v) for v in values]}")
 
   def check_match(self, regex, line):
     line = line.lower()

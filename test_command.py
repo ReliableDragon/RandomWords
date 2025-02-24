@@ -1,3 +1,4 @@
+from arg import Arg
 from command import Command
 
 class TestCommand(Command):
@@ -11,7 +12,7 @@ class TestCommand(Command):
 
   @staticmethod
   def cmd_args():
-    return [str, int]
+    return [Arg(str), Arg(int)]
 
   def execute(self, args_, context):
     super().validate_args(args_)

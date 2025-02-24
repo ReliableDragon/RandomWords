@@ -1,3 +1,4 @@
+from arg import Arg
 from file_command import FileCommand
 
 class Load(FileCommand):
@@ -8,7 +9,7 @@ class Load(FileCommand):
 
   @staticmethod
   def cmd_args():
-    return [str]
+    return [Arg(str)]
 
   def matches(self, line):
     regex = r'\w+\.txt'
