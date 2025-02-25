@@ -13,6 +13,8 @@ class FileManager():
 
   # dir_: str The absolute path to the source directory.
   def __init__(self, dir_ = os.path.abspath('sources/dicts/')):
+    if not dir_:
+      dir_ = os.path.abspath('.')
     if dir_[-1] != '/':
       dir_ += '/'
     self.dir = dir_
@@ -40,16 +42,18 @@ class FileManager():
       if not self.dir.startswith(ROOT_DIR):
         self.dir = ROOT_DIR
       return
+
     if path[-1] != '/':
       path += '/'
+
     if path == '/':
       self.dir = ROOT_DIR
       return
+
+    if path.startswith('/'):
+      self.dir = path
+      return
       
-    if path[-1] != '/':
-      path += '/'
-    if self.dir[-1] != '/':
-      self.dir += '/'
     self.dir += path
 
   ###
@@ -65,9 +69,10 @@ class FileManager():
       f = open(filename)
       txt = f.read()
       f.close()
-      words = re.split('[^a-zA-Z]', txt)
+      words = re.split('[^\w]', txt)
       words = set(words)
-      words.remove('')
+      if '' in words:
+        words.remove('')
       words = list(words)
       return words
 

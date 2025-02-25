@@ -3,14 +3,15 @@ import unittest
 from unittest.mock import MagicMock
 
 from cd_cmd import CD
-from file_manager import FileManager
+from test_file_manager import TestFileManager
 
 class CDTest(unittest.TestCase):
   
   def test_execute(self):
-    fm = MagicMock(spec=FileManager)
-    cd = CD(fm)
+    with TestFileManager() as tfm:
+      print(tfm)
+      cd = CD(tfm)
 
-    cd.execute(['foo/bar'], None)
+      cd.execute([tfm.td.d2.name], None)
 
-    fm.cd.assert_called_once_with('foo/bar')
+      self.assertEqual(tfm.dir, tfm.td.d2.name + '/')

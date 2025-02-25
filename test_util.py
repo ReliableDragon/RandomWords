@@ -1,8 +1,7 @@
-
 import pathlib
 
 from unittest.mock import MagicMock
-
+from tempfile import TemporaryDirectory, NamedTemporaryFile
 
 def make_mock_file(filename, suffix='.txt', is_dir=False):
     mock_file_object = MagicMock(spec=pathlib.Path)

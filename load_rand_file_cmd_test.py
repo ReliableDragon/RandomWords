@@ -1,19 +1,22 @@
 import unittest
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from file_manager import FileManager
+from test_file_manager import TestFileManager
 from load_rand_file_cmd import LoadRandFile
 
 class LoadRandFileTest(unittest.TestCase):
 
-  def test_execute(self):
-    fm = MagicMock(spec=FileManager)
-    fm.rand_file.return_value = 'test.txt'
-    fm.get_words.return_value = ['a', 'b', 'c']
+  @patch('random.choice')
+  def test_execute(self, mock_choice):
+    mock_choice.side_effect = lambda a: sorted(a)[-1]
 
-    lrf = LoadRandFile(fm)
-    result = lrf.execute([], None)
+    with TestFileManager() as tfm:
 
-    self.assertEqual(result, {'words': ['a', 'b', 'c']})
-    fm.get_words.assert_called_once_with('test.txt')
+      lrf = LoadRandFile(tfm)
+      result = lrf.execute([], None)
+
+      self.assertTrue('words' in result)
+      print(result)
+      self.assertCountEqual(result['words'], ['1', '2', '3', '4', '5', '6', '7'])

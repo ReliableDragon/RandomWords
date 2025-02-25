@@ -1,8 +1,9 @@
-import unittest
-import pathlib
-import tempfile
 import logging
+import os
+import pathlib
 import random
+import tempfile
+import unittest
 
 from unittest.mock import MagicMock, patch, mock_open
 
@@ -20,6 +21,10 @@ calzone
 '''
 
 class FileManagerTest(unittest.TestCase):
+
+  def test_blank_init(self):
+    fm = FileManager(None)
+    self.assertEqual(fm.dir, os.path.abspath('.') + '/')
 
   def test_cd_root(self):
     fm = FileManager('dir/')
@@ -40,6 +45,11 @@ class FileManagerTest(unittest.TestCase):
     fm = FileManager('dir/')
     fm.cd('sub')
     self.assertEqual('dir/sub/', fm.dir)
+
+  def test_cd_rooted(self):
+    fm = FileManager(file_manager.ROOT_DIR)
+    fm.cd('/otherdir')
+    self.assertEqual(fm.dir, '/otherdir/')
 
   @patch('builtins.open', new_callable=mock_open, read_data=WORD_DATA)
   def test_get_words(self, mock_file):

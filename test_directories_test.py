@@ -28,6 +28,9 @@ class TestDirectoriesTest(unittest.TestCase):
       self.assertTrue(os.path.isfile(td.ntf2.name))
       self.assertTrue(os.path.isfile(td.ntf2.name))
 
+      with open(td.tf3.name) as f:
+        self.assertEqual(f.read(), 'robophicles')
+
 
     self.assertFalse(os.path.exists(td.d1.name))
     self.assertFalse(os.path.exists(td.d2.name))

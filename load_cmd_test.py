@@ -4,18 +4,17 @@ from unittest.mock import MagicMock
 
 from load_cmd import Load
 from file_manager import FileManager
+from test_file_manager import TestFileManager
 
 class LoadTest(unittest.TestCase):
 
   def test_execute(self):
-    fm = MagicMock(spec=FileManager)
-    fm.get_words.return_value = ['a', 'b', 'c']
+    with TestFileManager() as tfm:
+      load = Load(tfm)
+      result = load.execute([tfm.td.tf1.name], {})
 
-    load = Load(fm)
-    result = load.execute(['test.txt'], {})
-
-    self.assertEqual(result, {'words': ['a', 'b', 'c']})
-    fm.get_words.assert_called_once_with('test.txt')
+      self.assertTrue('words' in result)
+      self.assertCountEqual(result['words'], ['a', 'b', 'c'])
 
   def test_matches(self):
     fm = MagicMock(spec=FileManager)

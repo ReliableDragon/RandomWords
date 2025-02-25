@@ -16,6 +16,6 @@ class GetWordTest(unittest.TestCase):
 
     f = io.StringIO()
     with redirect_stdout(f):
-      result = getword.execute([], {'words': ['a.txt', 'b.txt', 'c.txt']})
+      result = getword.execute([], {'words': ['a', 'b', 'c']})
 
-    self.assertEqual(f.getvalue(), 'a.txt\n')
+    self.assertEqual(f.getvalue(), 'a\n')
