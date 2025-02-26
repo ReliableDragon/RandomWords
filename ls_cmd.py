@@ -38,9 +38,8 @@ class LS(FileCommand):
       filename = args_[0]
       if not filename.startswith(self.fm.dir):
         filename = self.fm.get_path(filename)
-    try:
-      results = self.fm.ls(filename) 
-    except FileNotFoundError:
+    results = self.fm.ls(filename) 
+    if results == None:
       print(f"File '{filename}' not found.")
       return []
     for path in results:

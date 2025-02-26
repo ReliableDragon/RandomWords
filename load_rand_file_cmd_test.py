@@ -18,5 +18,4 @@ class LoadRandFileTest(unittest.TestCase):
       result = lrf.execute([], None)
 
       self.assertTrue('words' in result)
-      print(result)
       self.assertCountEqual(result['words'], ['1', '2', '3', '4', '5', '6', '7'])

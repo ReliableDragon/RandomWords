@@ -9,7 +9,6 @@ class CDTest(unittest.TestCase):
   
   def test_execute(self):
     with TestFileManager() as tfm:
-      print(tfm)
       cd = CD(tfm)
 
       cd.execute([tfm.td.d2.name], None)

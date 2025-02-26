@@ -10,7 +10,7 @@ from command_manager import CommandManager
 from parser import Parser
 
 parser = argparse.ArgumentParser(description='Get a random word from a book.')
-parser.add_argument('filename', metavar='filename',
+parser.add_argument('filename', metavar='filename', nargs='?',
                     help='filename to get the word from')
 args = parser.parse_args()
 

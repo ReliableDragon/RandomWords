@@ -54,6 +54,9 @@ class Command():
       return []
     return line.split(' ')[1:]
 
+  def overview(self):
+    return f'{self.cmd_name()}: {[str(arg) for arg in self.cmd_args()]}'
+
   def execute(self, args_, context):
     pass
 

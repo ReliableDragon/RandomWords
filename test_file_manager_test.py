@@ -14,5 +14,5 @@ class TestFileManagerTest(unittest.TestCase):
       self.assertIsNotNone(tfm.td)
       self.assertIn(tfm.td.tf1.name, tfm.ls())
     self.assertNotEqual(tfm.dir, '')
-    with self.assertRaises(FileNotFoundError):
-      tfm.ls()
+    result = tfm.ls()
+    self.assertIsNone(result)

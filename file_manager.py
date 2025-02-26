@@ -12,7 +12,7 @@ class FileManager():
 
 
   # dir_: str The absolute path to the source directory.
-  def __init__(self, dir_ = os.path.abspath('sources/dicts/')):
+  def __init__(self, dir_ = os.path.abspath('sources/')):
     if not dir_:
       dir_ = os.path.abspath('.')
     if dir_[-1] != '/':
@@ -30,6 +30,20 @@ class FileManager():
   def get_path(self, filename):
     return os.path.join(self.dir, filename)
 
+  def get_rooted(self, filename):
+    if filename == '/':
+      return ROOT_DIR
+    if filename.startswith('/'):
+      return filename
+
+    # This will leave the initial '/'.
+    relative_root = ROOT_DIR.removeprefix(os.path.abspath('.'))
+    # Remove initial '/'
+    relative_root = relative_root[1:]
+    if filename.startswith(relative_root):
+      relative_filename = filename.removeprefix(relative_root)
+      return os.path.join(ROOT_DIR, relative_filename)
+    return os.path.join(self.dir, filename)
 
   # Adds the provided path to the current subdir.
   #
@@ -65,6 +79,8 @@ class FileManager():
   # filename: The file to try to get the words from. 
   # Returns: All the words in the file, deduped, without order.
   def get_words(self, filename) -> list[str]:
+    filename = self.get_rooted(filename)
+      
     try:
       f = open(filename)
       txt = f.read()
@@ -95,18 +111,23 @@ class FileManager():
       dir_ = self.dir
     results = []
     file_list = pathlib.Path(dir_).iterdir()
-    for f in file_list:
-      if (f.is_dir() and str(f)[0] != '.'):
-        results.append(f)
-      elif f.suffix == '.txt':
-        results.append(f)
-    return [str(f) for f in results]
+    try:
+      for f in file_list:
+        if (f.is_dir() and str(f)[0] != '.'):
+          results.append(f)
+        elif f.suffix == '.txt':
+          results.append(f)
+      return [str(f) for f in results]
+    except FileNotFoundError:
+      return None
 
 
   # Get all .txt files in or below current subdir.
-  def get_txts(self) -> list[str]:
+  def get_txts(self, dir_ = None) -> list[str]:
+    if dir_ == None:
+      dir_ = self.dir
     matching_files = []
-    for path in pathlib.Path(self.dir).rglob('*.txt'):
+    for path in pathlib.Path(dir_).rglob('*.txt'):
       matching_files.append(str(path))
     return matching_files
 

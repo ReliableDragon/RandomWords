@@ -21,6 +21,5 @@ class LoadRandFile(FileCommand):
 
   def execute(self, args_, context):
     fname = self.fm.rand_file()
-    logger.warning(fname)
     words = self.fm.get_words(fname)
     return {'words': words}

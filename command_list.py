@@ -7,6 +7,10 @@ from load_cmd import Load
 from dump_cmd import Dump
 from get_word_cmd import GetWord
 from load_rand_file_cmd import LoadRandFile
+from get_alias_words_cmd import GetAliasWords
+from alias_load_cmd import AliasLoad
+from help_cmd import Help
+from multi_folder_get_words_cmd import MultiFolderGetWords
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,8 @@ class CommandList():
   def init_cmd(self, cmd):
     self.cmds[cmd.name] = cmd
 
+  # TODO: Consider passing self to commands
+  # so that commands can call other commands.
   def cmd_list(self):
     cmds = [
       LS(self.fm),
@@ -40,5 +46,9 @@ class CommandList():
       Dump(),
       GetWord(),
       LoadRandFile(self.fm),
+      AliasLoad(self.fm),
+      GetAliasWords(),
+      Help(self),
+      MultiFolderGetWords(self.fm)
     ]
     return cmds

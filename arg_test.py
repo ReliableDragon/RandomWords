@@ -6,8 +6,8 @@ class TestArg(unittest.TestCase):
 
 
   def test_init(self):
-    arg = Arg(int)
-    self.assertEqual(str(arg), "Arg[int](optional: False)")
+    arg = Arg(int, repeated=True)
+    self.assertEqual(str(arg), "Arg[int, rep]")
 
   def test_validate(self):
     arg = Arg(int)

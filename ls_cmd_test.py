@@ -65,6 +65,6 @@ class TestLS(unittest.TestCase):
       TestDirectories() as td):
       fm = FileManager(td.d4.name)
       ls = LS(fm)
-      ls.execute(['shmooble/'], None)
+      ls.execute(['shmooble/'], {})
       
-      self.assertEqual(f.getvalue(), f"File '{fm.dir}shmooble/' not found.\n")
+    self.assertEqual(f.getvalue(), f"File '{fm.dir}shmooble/' not found.\n")
