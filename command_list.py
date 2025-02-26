@@ -11,6 +11,7 @@ from get_alias_words_cmd import GetAliasWords
 from alias_load_cmd import AliasLoad
 from help_cmd import Help
 from multi_folder_get_words_cmd import MultiFolderGetWords
+from load_rand_dir_file_cmd import LoadRandDirFile
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class CommandList():
       AliasLoad(self.fm),
       GetAliasWords(),
       Help(self),
-      MultiFolderGetWords(self.fm)
+      MultiFolderGetWords(self.fm),
+      LoadRandDirFile(self.fm),
     ]
     return cmds

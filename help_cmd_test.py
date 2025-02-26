@@ -30,7 +30,7 @@ class HelpTest(unittest.TestCase):
 
     self.assertEqual(f.getvalue(), "abba: ['Arg[str]', 'Arg[int]']\nuwu\n")
 
-  def test_execute_doesnt_throw(self):
+  def test_execute_correct_num_helps(self):
     fm = FileManager()
     cl = CommandList(fm)
     cm = CommandManager(cl)

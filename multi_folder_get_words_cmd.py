@@ -16,6 +16,9 @@ class MultiFolderGetWords(FileCommand):
   def cmd_args():
     return [Arg(str, repeated=True)]
 
+  def overview(self):
+    return 'multi_folder_get_words [mfgw, mul] {folder, filename, or alias}+'
+
   def matches(self, line):
     regex = r'(multi_folder_get_words|mfgw|mul)( [\w_\/\.]+)+'
     return self.check_match(regex, line)

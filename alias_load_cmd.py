@@ -12,6 +12,9 @@ class AliasLoad(FileCommand):
   def cmd_args():
     return [Arg(str), Arg(str)]
 
+  def overview(self):
+    return 'alias_load [al] alias filename'
+
   def matches(self, line):
     regex = r'(alias_load|al) [\w_]+ [\w_.\/]+'
     return self.check_match(regex, line)
@@ -22,6 +25,7 @@ class AliasLoad(FileCommand):
   def execute(self, args_, context):
     alias  = args_[0]
     filename = args_[1]
+    filename = self.fm.get_rooted(filename)
     words = None
     try:
       words = self.fm.get_words(filename)

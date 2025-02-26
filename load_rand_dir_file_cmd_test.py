@@ -1,4 +1,7 @@
 import unittest
+import os
+import logging
+import pathlib
 import io
 
 from contextlib import redirect_stdout
@@ -6,7 +9,9 @@ from unittest.mock import MagicMock, patch
 
 from file_manager import FileManager
 from test_file_manager import TestFileManager
-from load_rand_file_cmd import LoadRandFile
+from load_rand_dir_file_cmd import LoadRandDirFile
+
+logger = logging.getLogger(__name__)
 
 class LoadRandFileTest(unittest.TestCase):
 
@@ -17,8 +22,8 @@ class LoadRandFileTest(unittest.TestCase):
 
     with (TestFileManager() as tfm,
       redirect_stdout(f)):
-      lrf = LoadRandFile(tfm)
-      result = lrf.execute([], None)
+        lrf = LoadRandDirFile(tfm)
+        result = lrf.execute([], None)
 
-      self.assertTrue('words' in result)
-      self.assertCountEqual(result['words'], ['1', '2', '3', '4', '5', '6', '7'])
+        self.assertTrue('words' in result)
+        self.assertCountEqual(result['words'], ['1', '2', '3', '4', '5', '6', '7'])

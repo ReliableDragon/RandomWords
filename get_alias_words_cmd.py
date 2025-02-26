@@ -13,6 +13,9 @@ class GetAliasWords(Command):
   def cmd_args():
     return [Arg(str, repeated=True)]
 
+  def overview(self):
+    return 'get_alias_words [gaw] alias+'
+
   def matches(self, line):
     regex = r'(get_alias_words|gaw)( \w+)+'
     return self.check_match(regex, line)
