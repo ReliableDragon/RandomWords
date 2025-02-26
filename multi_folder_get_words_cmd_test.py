@@ -20,7 +20,7 @@ class MultiFolderGetWordsTest(unittest.TestCase):
 
   @patch('random.choice')
   def test_execute(self, mock_choice):
-    mock_choice.side_effect = lambda a: a[0]
+    mock_choice.side_effect = lambda a: sorted(a)[0]
     f = io.StringIO()
     with (TestFileManager() as tfm,
       redirect_stdout(f)):
@@ -30,8 +30,30 @@ class MultiFolderGetWordsTest(unittest.TestCase):
     self.assertEqual(f.getvalue(), 'aeschylinux five\n')
 
   @patch('random.choice')
+  def test_execute_with_context(self, mock_choice):
+    mock_choice.side_effect = lambda a: sorted(a)[0]
+    f = io.StringIO()
+    with (TestFileManager() as tfm,
+      redirect_stdout(f)):
+      mfgw = MultiFolderGetWords(tfm)
+      args_ = ['thlong', tfm.td.d4.name]
+      mfgw.execute(args_, {'thlong': ['neeble']})
+    self.assertEqual(f.getvalue(), 'neeble five\n')
+
+  @patch('random.choice')
+  def test_execute_with_file(self, mock_choice):
+    mock_choice.side_effect = lambda a: sorted(a)[0]
+    f = io.StringIO()
+    with (TestFileManager() as tfm,
+      redirect_stdout(f)):
+      mfgw = MultiFolderGetWords(tfm)
+      args_ = [tfm.td.tf1.name, tfm.td.d4.name]
+      mfgw.execute(args_, {})
+    self.assertEqual(f.getvalue(), 'a five\n')
+
+  @patch('random.choice')
   def test_execute_with_rel_dirs(self, mock_choice):
-    mock_choice.side_effect = lambda a: a[0]
+    mock_choice.side_effect = lambda a: sorted(a)[0]
     f = io.StringIO()
     with (TestFileManager() as tfm,
       redirect_stdout(f)):

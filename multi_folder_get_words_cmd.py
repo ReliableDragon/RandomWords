@@ -17,21 +17,22 @@ class MultiFolderGetWords(FileCommand):
     return [Arg(str, repeated=True)]
 
   def matches(self, line):
-    regex = r'(multi_folder_get_words|mfgw|mul)( [\w_\/]+)+'
+    regex = r'(multi_folder_get_words|mfgw|mul)( [\w_\/\.]+)+'
     return self.check_match(regex, line)
 
   def execute(self, args_, context):
-    folders = args_
     output = ''
-    for folder in folders:
-      folder = self.fm.get_rooted(folder)
-      txts = self.fm.get_txts(folder)
-      # Ensure random choice stability
-      txts = sorted(txts)
-      txt = random.choice(txts)
-      words = self.fm.get_words(txt)
-      # Ensure random choice stability
-      words = sorted(words)
+    for fname in args_:
+      if fname.endswith('.txt'):
+        file = self.fm.get_rooted(fname)
+        words = self.fm.get_words(file)
+      elif fname in context:
+        words = context[fname]
+      else:
+        folder = self.fm.get_rooted(fname)
+        txts = self.fm.get_txts(folder)
+        txt = random.choice(txts)
+        words = self.fm.get_words(txt)
       word = random.choice(words)
       output += word + ' '
     # Remove trailing space
