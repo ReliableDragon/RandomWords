@@ -11,13 +11,14 @@ class AliasLoadTest(unittest.TestCase):
     al = AliasLoad(MagicMock())
     self.assertTrue(al.matches('al d f.txt'))
     self.assertTrue(al.matches('alias_load asdf_asdf qwery/qwerty/qwerty.txt')) 
-    self.assertFalse(al.matches('al bb'))
+    self.assertFalse(al.matches('alias bb'))
     self.assertFalse(al.matches('al aa/bb/cc.txt'))
     self.assertFalse(al.matches('alias_load one two three'))
 
   def test_parse_args(self):
     al = AliasLoad(MagicMock())
     self.assertEqual(al.parse_args('al a b'), ['a', 'b'])
+    self.assertEqual(al.parse_args('alias a b'), ['a', 'b'])
     self.assertEqual(al.parse_args('alias_load one two'), ['one', 'two'])
 
   def test_execute(self):

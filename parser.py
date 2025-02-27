@@ -1,6 +1,22 @@
 import logging
+import os
+import atexit
+import readline
 
 logger = logging.getLogger(__name__)
+
+# Due to a Mac-specific error, this functionality
+# does not work correctly across platforms.
+
+# histfile = os.path.join(os.path.expanduser("~"), ".book_word_history")
+# try:
+#     readline.read_history_file(histfile)
+#     # default history len is -1 (infinite), which may grow unruly
+#     readline.set_history_length(1000)
+# except FileNotFoundError:
+#     pass
+
+# atexit.register(readline.write_history_file, histfile)
 
 class Parser():
   

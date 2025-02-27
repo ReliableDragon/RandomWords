@@ -28,7 +28,7 @@ class HelpTest(unittest.TestCase):
     with redirect_stdout(f):
       h.execute([], {})
 
-    self.assertEqual(f.getvalue(), "abba: ['Arg[str]', 'Arg[int]']\nuwu\n")
+    self.assertEqual(f.getvalue(), "abba: ['Arg[str]', 'Arg[int, opt]']\nuwu\n")
 
   def test_execute_correct_num_helps(self):
     fm = FileManager()

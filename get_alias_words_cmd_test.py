@@ -24,5 +24,9 @@ class GetAliasWordsTest(unittest.TestCase):
 
   def test_execute_err(self):
     gaw = GetAliasWords()
-    with self.assertRaises(AssertionError):
-      gaw.execute(['a', 'b', 'c'], {'a': ['aa'], 'b': ['bb']})
+    f = io.StringIO()
+    with redirect_stdout(f):
+      result = gaw.execute(['a', 'b', 'c'], {'a': ['aa'], 'b': ['bb']})
+      self.assertIsNone(result)
+    self.assertEqual(f.getvalue(), "Arg c was not found in context! Valid values are ['a', 'b'].\n")
+      

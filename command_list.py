@@ -12,6 +12,9 @@ from alias_load_cmd import AliasLoad
 from help_cmd import Help
 from multi_folder_get_words_cmd import MultiFolderGetWords
 from load_rand_dir_file_cmd import LoadRandDirFile
+from combine_cmd import Combine
+from diff_cmd import Diff
+from intersection_cmd import Intersection
 
 logger = logging.getLogger(__name__)
 
@@ -52,5 +55,8 @@ class CommandList():
       Help(self),
       MultiFolderGetWords(self.fm),
       LoadRandDirFile(self.fm),
+      Combine(self.fm),
+      Diff(self.fm),
+      Intersection(self.fm),
     ]
     return cmds

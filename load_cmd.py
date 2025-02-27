@@ -12,7 +12,7 @@ class Load(FileCommand):
     return [Arg(str)]
 
   def matches(self, line):
-    regex = r'\w+\.txt'
+    regex = r'[\w\/]+\.txt'
     return self.check_match(regex, line)
 
   def parse_args(self, line):

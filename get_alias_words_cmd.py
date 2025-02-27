@@ -22,7 +22,9 @@ class GetAliasWords(Command):
 
   def execute(self, args_, context):
     for arg in args_:
-      assert arg in context, f"Arg {arg} was not found in context! Valid values are {context}"
+      if arg not in context:
+        print(f"Arg {arg} was not found in context! Valid values are {list(context.keys())}.")
+        return None
     output = ''
     for arg in args_:
       output += random.choice(context[arg])

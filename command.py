@@ -41,12 +41,14 @@ class Command():
       return True
 
   # Determine whether this command is being invoked. If this method
-  # is not overridden, defaults to the command's name plus the
-  # rest of a line if it has arguments.
+  # is not overridden, defaults to the command's name plus space-separated arguments.
   def matches(self, line):
     regex = self.name
-    if self.args:
-      regex += r' .*'
+    for arg in self.args:
+      if arg.optional:
+        regex += r'( [^ ]+)?'
+      else:
+        regex += r' [^ ]+' 
     return self.check_match(regex, line)
 
   def parse_args(self, line):

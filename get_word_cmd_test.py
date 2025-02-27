@@ -19,3 +19,21 @@ class GetWordTest(unittest.TestCase):
       result = getword.execute([], {'words': ['a', 'b', 'c']})
 
     self.assertEqual(f.getvalue(), 'a\n')
+
+  @patch('random.choice')
+  def test_execute_multi(self, mock_choice):
+    num = 0
+    def choice(a):
+      nonlocal num
+      result = a[num]
+      num += 1
+      return result
+    mock_choice.side_effect = choice
+
+    getword = GetWord()
+
+    f = io.StringIO()
+    with redirect_stdout(f):
+      result = getword.execute([3], {'words': ['a', 'b', 'c']})
+
+    self.assertEqual(f.getvalue(), 'a b c\n')

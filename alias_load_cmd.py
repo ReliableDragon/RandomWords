@@ -13,10 +13,10 @@ class AliasLoad(FileCommand):
     return [Arg(str), Arg(str)]
 
   def overview(self):
-    return 'alias_load [al] alias filename'
+    return 'alias_load [alias|al] alias filename'
 
   def matches(self, line):
-    regex = r'(alias_load|al) [\w_]+ [\w_.\/]+'
+    regex = r'(alias_load|alias|al) [\w_]+ [\w_.\/]+'
     return self.check_match(regex, line)
 
   def parse_args(self, line):
