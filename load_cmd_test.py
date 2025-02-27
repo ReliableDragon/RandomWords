@@ -16,10 +16,27 @@ class LoadTest(unittest.TestCase):
       self.assertTrue('words' in result)
       self.assertCountEqual(result['words'], ['a', 'b', 'c'])
 
+  def test_execute_context(self):
+    with TestFileManager() as tfm:
+      load = Load(tfm)
+      result = load.execute(['yanoo'], {'yanoo': ['1', '2', '3']})
+
+      self.assertTrue('words' in result)
+      self.assertCountEqual(result['words'], ['1', '2', '3'])
+
   def test_matches(self):
     fm = MagicMock(spec=FileManager)
     
     load = Load(fm)
-    result = load.matches('test.txt')
+    self.assertTrue(load.matches('test.txt'))
+    self.assertTrue(load.matches('a/b/c.txt'))
+    self.assertTrue(load.matches('load shmeeble'))
+    self.assertTrue(load.matches('load a/b/c.txt'))
+    self.assertFalse(load.matches('shmeeble'))
 
-    self.assertEqual(result, True)
+  def test_parse_args(self):
+    fm = MagicMock(spec=FileManager)
+
+    l = Load(fm)
+    self.assertEqual(l.parse_args('test.txt'), ['test.txt'])
+    self.assertEqual(l.parse_args('load shmeeble'), ['shmeeble'])

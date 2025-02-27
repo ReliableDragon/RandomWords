@@ -25,7 +25,7 @@ class TestDirectories():
     self.write_file(self.tf1, 'a\nb\nc\n')
     self.write_file(self.tf2, 'scout\nheavy\nmedic')
     self.write_file(self.tf3, 'robophicles aeschylinux euripiDOS')
-    self.write_file(self.tf4, '1\n2\n3\n4\n5\n6\n7')
+    self.write_file(self.tf4, '1\n2\n3\n4\n5\n6\n7\none\ntwo\nthree')
     self.write_file(self.tf5, 'five')
 
     self.ntf1 = NamedTemporaryFile(suffix='.mp3', dir=self.d1.name)

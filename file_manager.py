@@ -78,18 +78,39 @@ class FileManager():
   #
   # filename: The file to try to get the words from. 
   # Returns: All the words in the file, deduped, without order.
+  def remove_gutenberg(self, txt):
+    header = '*** START OF THE PROJECT GUTENBERG EBOOK'
+    footer = '*** END OF THE PROJECT GUTENBERG EBOOK'
+    if header not in txt:
+      return txt
+
+    index = 0
+    out_txt = ''
+    while header in txt[index:]:
+      header_start = txt.index(header, index)
+      header_end = txt.index('***', header_start+1)
+      footer_start = txt.index(footer, header_end)
+      out_txt += txt[header_end+3:footer_start]
+      index = footer_start+1
+    return out_txt
+    
+
   def get_words(self, filename) -> list[str]:
     filename = self.get_rooted(filename)
       
     try:
-      f = open(filename)
-      txt = f.read()
-      f.close()
-      words = re.split('[^\w]', txt)
+      with open(filename) as f:
+        txt = f.read()
+      txt = self.remove_gutenberg(txt)
+
+      words = re.split('[^\w\-\—\–]', txt)
       words = set(words)
+
       if '' in words:
         words.remove('')
+      words = filter(lambda a: not a.isnumeric(), words)
       words = list(words)
+      words = [w.lower() for w in words]
       return words
 
     except OSError:
@@ -137,8 +158,8 @@ class FileManager():
 
   # Gets a random .txt file, picking evenly
   # between all files below the current dir.
-  def rand_file(self):
-    txts = self.get_txts()
+  def rand_file(self, dir_ = None):
+    txts = self.get_txts(dir_)
     file = random.choice(txts)
     return file
 

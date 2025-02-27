@@ -21,6 +21,11 @@ WORD_DATA = '''apple
 bagel
 calzone
 '''
+GUTENBERG_TXT = '''A header.
+*** START OF THE PROJECT GUTENBERG EBOOK KWANGLAP ***
+alpontris
+*** END OF THE PROJECT GUTENBERG EBOOK KWANGLAP ***
+A footer.'''
 
 class FileManagerTest(unittest.TestCase):
 
@@ -73,6 +78,15 @@ class FileManagerTest(unittest.TestCase):
     fm.cd('/otherdir')
     self.assertEqual(fm.dir, '/otherdir/')
 
+  def test_remove_gutenberg(self):
+    fm = FileManager(None)
+    self.assertEqual(fm.remove_gutenberg(GUTENBERG_TXT), '\nalpontris\n')
+
+  def test_remove_double_gutenberg(self):
+    double_gutenberg = GUTENBERG_TXT + GUTENBERG_TXT.replace('alpontris', 'nebresion') 
+    fm = FileManager(None)
+    self.assertEqual(fm.remove_gutenberg(double_gutenberg), '\nalpontris\n\nnebresion\n')
+
   def test_get_words(self):
     with TestDirectories() as td:
       fm = FileManager(td.root)
@@ -82,6 +96,16 @@ class FileManagerTest(unittest.TestCase):
     with TestDirectories() as td:
       fm = FileManager(td.root)
       self.assertCountEqual(fm.get_words(td.tf1_name), ['a', 'b', 'c'])
+   
+  def test_get_words_numeric(self):
+    with TestDirectories() as td:
+      fm = FileManager(td.root)
+      self.assertCountEqual(fm.get_words(td.tf4.name), ['one', 'two', 'three'])
+
+  @patch('builtins.open', mock_open(read_data=GUTENBERG_TXT))
+  def test_get_words_gutenberg(self):
+    fm = FileManager(None)
+    self.assertEqual(fm.get_words('unused'), ['alpontris'])
    
   def test_ls(self):
     with TestDirectories() as td:
@@ -132,13 +156,22 @@ class FileManagerTest(unittest.TestCase):
   @patch('random.choice')
   def test_rand_file(self, mock_choice):
     with TestDirectories() as td:
-      mock_choice.return_value = td.tf2.name
+      mock_choice.side_effect = lambda a: next(filter(lambda b: '/tf2' in b, a))
 
       fm = FileManager(td.root)
       result = fm.rand_file()
 
       self.assertEqual(result, td.tf2.name)
     
+  @patch('random.choice')
+  def test_rand_file_with_dir(self, mock_choice):
+    with TestDirectories() as td:
+      mock_choice.side_effect = lambda a: sorted(a)[-1]
+
+      fm = FileManager(td.d2.name)
+      result = fm.rand_file(td.d3.name)
+
+      self.assertEqual(result, td.tf4.name)
       
   @patch('random.choice')
   def test_rand_dir(self, mock_choice):

@@ -12,18 +12,24 @@ class Load(FileCommand):
     return [Arg(str)]
 
   def matches(self, line):
-    regex = r'[\w\/]+\.txt'
+    regex = r'(load [\w\/]+(\.txt)?)|([\w\/]+\.txt)'
     return self.check_match(regex, line)
 
   def parse_args(self, line):
+    line = line.removeprefix('load ')
     return [line]
 
   def execute(self, args_, context):
-    filename = args_[0]
+    source = args_[0]
     words = None
-    try:
-      words = self.fm.get_words(filename)
-    except FileNotFoundError:
-      print('File not found!')
-      return None
+    if source.endswith('.txt'):
+      try:
+        words = self.fm.get_words(source)
+      except FileNotFoundError:
+        print('File not found!')
+        return None
+    else:
+      if not source in context:
+        print(f'Tried to load from context value {source}, but valid values are {list(context.keys())}.')
+      words = context[source]
     return {'words': words}
