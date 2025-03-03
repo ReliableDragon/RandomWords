@@ -28,6 +28,9 @@ class LoadRandFile(FileCommand):
       folder = args_[0]
       folder = self.fm.get_rooted(folder)
     fname = self.fm.rand_file(folder)
+    if fname == None:
+      print(f'Invalid folder: {folder}')
+      return None
     print(f'Loaded {fname}.')
     words = self.fm.get_words(fname)
     return {'words': words}

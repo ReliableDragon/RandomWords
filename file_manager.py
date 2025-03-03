@@ -103,7 +103,7 @@ class FileManager():
         txt = f.read()
       txt = self.remove_gutenberg(txt)
 
-      words = re.split('[^\w\-\—\–]', txt)
+      words = re.split('[^a-zA-Z0-9\-\—\–]', txt)
       words = set(words)
 
       if '' in words:
@@ -160,6 +160,8 @@ class FileManager():
   # between all files below the current dir.
   def rand_file(self, dir_ = None):
     txts = self.get_txts(dir_)
+    if txts == None:
+      return None
     file = random.choice(txts)
     return file
 
