@@ -36,5 +36,9 @@ class AliasLoad(FileCommand):
         return None
     else:
       words = context['words']
+    if alias in context:
+      overwrite = input('Alias exists. Overwrite? y/N')
+      if not overwrite or not overwrite.lower().startswith('y'):
+        return {}
     return {alias: words}
 
