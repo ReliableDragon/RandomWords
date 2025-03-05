@@ -21,12 +21,16 @@ class GetAliasWords(Command):
     return self.check_match(regex, line)
 
   def execute(self, args_, context):
+    keys = []
     for arg in args_:
+      if arg in ['r', 'rand', 'random']:
+        arg = random.choice(context.keys())
       if arg not in context:
         print(f"Arg {arg} was not found in context! Valid values are {list(context.keys())}.")
         return None
+      keys.append(arg)
     output = ''
-    for arg in args_:
+    for arg in keys:
       output += random.choice(context[arg])
       output += ' '
     # Strip final space.

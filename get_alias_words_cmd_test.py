@@ -1,6 +1,7 @@
 import unittest
 import io
 
+from unittest.mock import patch
 from contextlib import redirect_stdout
 
 from get_alias_words_cmd import GetAliasWords
@@ -30,3 +31,12 @@ class GetAliasWordsTest(unittest.TestCase):
       self.assertIsNone(result)
     self.assertEqual(f.getvalue(), "Arg c was not found in context! Valid values are ['a', 'b'].\n")
       
+  @patch('random.choice')
+  def test_execute_rand(self, mock_choice):
+    mock_choice.side_effect = lambda a: sorted(a)[-1]
+    gaw = GetAliasWords()
+    f = io.StringIO()
+    with redirect_stdout(f):
+      gaw.execute(['a', 'r'], {'a': ['aa'], 'b': ['bb']})
+    self.assertEqual(f.getvalue(), 'aa bb\n')
+
