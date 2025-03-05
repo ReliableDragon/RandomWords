@@ -103,7 +103,7 @@ class FileManager():
         txt = f.read()
       txt = self.remove_gutenberg(txt)
 
-      words = re.split('[^a-zA-Z0-9\-\—\–]', txt)
+      words = re.split('[^a-zA-Z0-9\-\—\–À-ÿ]', txt)
       words = set(words)
 
       if '' in words:
