@@ -12,8 +12,8 @@ class CombineCmdTest(unittest.TestCase):
     self.assertTrue(al.matches('c d f.txt'))
     self.assertTrue(al.matches('combine asdf_asdf qwery/qwerty/qwerty.txt'))
     self.assertTrue(al.matches('c one two three'))
-    self.assertFalse(al.matches('c bb'))
-    self.assertFalse(al.matches('c aa/bb/cc.txt'))
+    self.assertTrue(al.matches('c bb'))
+    self.assertTrue(al.matches('c aa/bb/cc.txt'))
     self.assertFalse(al.matches('c one two three four'))
 
   def test_parse_args(self):

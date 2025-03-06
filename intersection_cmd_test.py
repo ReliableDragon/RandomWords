@@ -14,8 +14,8 @@ class IntersectionCommandTest(unittest.TestCase):
     self.assertTrue(al.matches('i d f.txt'))
     self.assertTrue(al.matches('intersection asdf_asdf qwery/qwerty/qwerty.txt'))
     self.assertTrue(al.matches('i one two three'))
-    self.assertFalse(al.matches('i bb'))
-    self.assertFalse(al.matches('i aa/bb/cc.txt'))
+    self.assertTrue(al.matches('i bb'))
+    self.assertTrue(al.matches('i aa/bb/cc.txt'))
     self.assertFalse(al.matches('i one two three four'))
 
   def test_parse_args(self):

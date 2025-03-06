@@ -26,6 +26,8 @@ GUTENBERG_TXT = '''A header.
 alpontris
 *** END OF THE PROJECT GUTENBERG EBOOK KWANGLAP ***
 A footer.'''
+WORD_SPLIT_TXT = '''one--two
+three four*five sïx se—ven ei-ght 9nine9 ten 11 12-13 14.15'''
 
 class FileManagerTest(unittest.TestCase):
 
@@ -106,6 +108,18 @@ class FileManagerTest(unittest.TestCase):
   def test_get_words_gutenberg(self):
     fm = FileManager(None)
     self.assertEqual(fm.get_words('unused'), ['alpontris'])
+   
+  def test_ls(self):
+    with TestDirectories() as td:
+      fm = FileManager(td.root)
+      results = fm.ls()
+
+      self.assertCountEqual(results, [td.tf1.name, td.d2.name])
+
+  @patch('builtins.open', mock_open(read_data=WORD_SPLIT_TXT))
+  def test_get_words_word_split(self):
+    fm = FileManager(None)
+    self.assertCountEqual(fm.get_words('unused'), ['one', 'two', 'three', 'four', 'five', 'sïx', 'se—ven', 'ei-ght', '9nine9', 'ten'])
    
   def test_ls(self):
     with TestDirectories() as td:

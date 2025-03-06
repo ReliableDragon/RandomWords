@@ -16,7 +16,7 @@ class LoadRandFile(FileCommand):
     return [Arg(str, optional=True)]
 
   def overview(self):
-    return 'load_rand_file [r, rand, random]'
+    return 'load_rand_file [r, rand, random]: folder?'
 
   def matches(self, line):
     regex = r'(r|rand|random)( [\w\/]+)?'

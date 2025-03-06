@@ -38,5 +38,13 @@ class GetAliasWordsTest(unittest.TestCase):
     f = io.StringIO()
     with redirect_stdout(f):
       gaw.execute(['a', 'r'], {'a': ['aa'], 'b': ['bb']})
-    self.assertEqual(f.getvalue(), 'aa bb\n')
+    self.assertEqual(f.getvalue(), 'aa bb [a b]\n')
 
+  @patch('random.choice')
+  def test_execute_rand_removes_words(self, mock_choice):
+    mock_choice.side_effect = lambda a: sorted(a)[-1]
+    gaw = GetAliasWords()
+    f = io.StringIO()
+    with redirect_stdout(f):
+      gaw.execute(['a', 'r'], {'a': ['aa'], 'b': ['bb'], 'words': ['BAD']})
+    self.assertEqual(f.getvalue(), 'aa bb [a b]\n')

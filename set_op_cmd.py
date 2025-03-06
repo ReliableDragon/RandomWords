@@ -1,6 +1,10 @@
+import logging
+
 from file_manager import FileManager
 from file_command import FileCommand
 from arg import Arg
+
+logger = logging.getLogger(__name__)
 
 class SetOpCommand(FileCommand):
 
@@ -17,11 +21,11 @@ class SetOpCommand(FileCommand):
   def overview(self):
     name = self.aliases()[0]
     aliases = '|'.join(self.aliases()[1:])
-    return f'{name} [{aliases}] in(/out){{alias, filename*}} in{{alias, filename}} out{{alias}}'
+    return f'{name} [{aliases}] in(/out){{alias, filename*}}(opt) in{{alias, filename}} out{{alias}}(opt)'
 
   def matches(self, line):
     aliases = '|'.join(self.aliases())
-    regex = rf'({aliases}) [\w_.\/]+ [\w_.\/]+( [\w_.\/]+)?'
+    regex = rf'({aliases})( [\w_.\/]+){{1,3}}'
     return self.check_match(regex, line)
 
   def parse_args(self, line):
@@ -30,7 +34,11 @@ class SetOpCommand(FileCommand):
   def execute(self, args_, context):
     out_ctx = {}
     n1 = args_[0]
-    n2 = args_[1]
+    if len(args_) == 1:
+      n2 = n1
+      n1 = 'words'
+    else:
+      n2 = args_[1]
     n3 = None
     if len(args_) == 3:
       n3 = args_[2]

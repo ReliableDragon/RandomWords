@@ -12,8 +12,9 @@ class DiffCommandTest(unittest.TestCase):
     self.assertTrue(al.matches('d d f.txt'))
     self.assertTrue(al.matches('diff asdf_asdf qwery/qwerty/qwerty.txt'))
     self.assertTrue(al.matches('d one two three'))
-    self.assertFalse(al.matches('d bb'))
-    self.assertFalse(al.matches('d aa/bb/cc.txt'))
+    self.assertTrue(al.matches('d bb'))
+    self.assertFalse(al.matches('d'))
+    self.assertTrue(al.matches('d aa/bb/cc.txt'))
     self.assertFalse(al.matches('d one two three four'))
 
   def test_parse_args(self):
@@ -54,3 +55,11 @@ class DiffCommandTest(unittest.TestCase):
       al = Diff(tfm)
       with self.assertRaises(AssertionError):
         result = al.execute([tfm.td.tf5.name, tfm.td.tf1_name], {})
+
+  def test_execute_one_arg(self):
+    with TestFileManager() as tfm:
+      al = Diff(tfm)
+      result = al.execute(['bleenu'], {'bleenu': ['1', '2', '3'], 'words': ['3', '4', '5']})
+      self.assertTrue('words' in result)
+      self.assertCountEqual(result['words'], ['4', '5'])
+
