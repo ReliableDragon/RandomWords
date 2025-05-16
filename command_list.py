@@ -15,6 +15,7 @@ from load_rand_dir_file_cmd import LoadRandDirFile
 from combine_cmd import Combine
 from diff_cmd import Diff
 from intersection_cmd import Intersection
+from rand_diff_cmd import RandDiff
 
 logger = logging.getLogger(__name__)
 
@@ -58,5 +59,6 @@ class CommandList():
       Combine(self.fm),
       Diff(self.fm),
       Intersection(self.fm),
+      RandDiff(self)
     ]
     return cmds

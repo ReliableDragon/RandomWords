@@ -45,7 +45,7 @@ class SetOpCommand(FileCommand):
 
     w1 = None
     if n3 == None:
-      assert n1 in context, f'Got name {n1} as first argument to two-parameter version of diff, but context only contained {context}'
+      assert n1 in context, f'Got name {n1} as first argument to two-parameter version of diff, but context only contained {context.keys()}'
     if n1 in context:
       w1 = context[n1]
     else:
