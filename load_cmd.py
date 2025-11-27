@@ -31,5 +31,6 @@ class Load(FileCommand):
     else:
       if not source in context:
         print(f'Tried to load from context value {source}, but valid values are {list(context.keys())}.')
-      words = context[source]
+      else:
+        words = context[source]
     return {'words': words}
