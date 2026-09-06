@@ -1,5 +1,4 @@
 import os
-import file_manager
 
 from arg import Arg
 from file_command import FileCommand
@@ -14,15 +13,15 @@ class LS(FileCommand):
   def cmd_args():
     return [Arg(str, optional=True)]
 
+  def overview(self):
+    return 'ls [folder]'
+
   def matches(self, line):
     regex = r'ls( \w+)?'
     return self.check_match(regex, line)
 
   def parse_args(self, line):
-    args = line.split(' ')[1:]
-    if not args:
-      return []
-    return args
+    return line.split(' ')[1:]
 
   # Print all relevant files under the directory passed
   # in, interpreting it either as a rooted path if it
@@ -38,15 +37,14 @@ class LS(FileCommand):
       filename = args_[0]
       if not filename.startswith(self.fm.dir):
         filename = self.fm.get_path(filename)
-    results = self.fm.ls(filename) 
-    if results == None:
-      print(f"File '{filename}' not found.")
+    results = self.fm.ls(filename)
+    if results is None:
+      print(f"File '{filename or self.fm.dir}' not found.")
       return []
-    for path in results:
+    for path in sorted(results):
       basename = os.path.basename(path)
 
       if os.path.isdir(path):
         basename += '/'
-        
+
       print(basename)
-    

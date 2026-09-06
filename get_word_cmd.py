@@ -13,7 +13,11 @@ class GetWord(Command):
   def cmd_args():
     return [Arg(int, optional=True)]
 
+  def overview(self):
+    return 'get_word: "word", "next", a number, or an empty line'
+
   def matches(self, line):
+    line = line.strip().lower()
     if line in ['', 'word', 'next']:
       return True
     if line.isnumeric():
@@ -21,18 +25,15 @@ class GetWord(Command):
     return False
 
   def parse_args(self, line):
+    line = line.strip()
     if line.isnumeric():
       return [int(line)]
     return []
 
   def execute(self, args_, context):
-    result = ''
-    num = 1
-    if args_:
-      num = args_[0]
-    for _ in range(num):
-      result += random.choice(context['words'])
-      result += ' '
-    # Remove trailing space
-    result = result[:-1]
-    print(result)
+    words = context.get('words')
+    if not words:
+      print('No words are loaded. Use load, r or dr first.')
+      return None
+    num = args_[0] if args_ else 1
+    print(' '.join(random.choice(words) for _ in range(num)))

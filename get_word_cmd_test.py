@@ -16,7 +16,7 @@ class GetWordTest(unittest.TestCase):
 
     f = io.StringIO()
     with redirect_stdout(f):
-      result = getword.execute([], {'words': ['a', 'b', 'c']})
+      getword.execute([], {'words': ['a', 'b', 'c']})
 
     self.assertEqual(f.getvalue(), 'a\n')
 
@@ -34,6 +34,18 @@ class GetWordTest(unittest.TestCase):
 
     f = io.StringIO()
     with redirect_stdout(f):
-      result = getword.execute([3], {'words': ['a', 'b', 'c']})
+      getword.execute([3], {'words': ['a', 'b', 'c']})
 
     self.assertEqual(f.getvalue(), 'a b c\n')
+
+  def test_execute_without_words(self):
+    f = io.StringIO()
+    with redirect_stdout(f):
+      self.assertIsNone(GetWord().execute([], {}))
+    self.assertIn('No words are loaded', f.getvalue())
+
+  def test_execute_with_empty_pool(self):
+    f = io.StringIO()
+    with redirect_stdout(f):
+      self.assertIsNone(GetWord().execute([], {'words': []}))
+    self.assertIn('No words are loaded', f.getvalue())

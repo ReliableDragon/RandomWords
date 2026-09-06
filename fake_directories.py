@@ -1,7 +1,7 @@
 
 from tempfile import TemporaryDirectory, NamedTemporaryFile
 
-class TestDirectories():
+class FakeDirectories():
 
   def get_rooted(self, path):
     return '/' + self.root + path.removeprefix(self.root)

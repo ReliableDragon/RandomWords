@@ -2,14 +2,7 @@ import re
 import logging
 import itertools
 
-from typing import List, Callable
-from abc import ABC, abstractmethod
-
-from arg import Arg
-
 logger = logging.getLogger(__name__)
-
-DEFAULT_COMMAND = 'ls'
 
 class Command():
 
@@ -18,7 +11,7 @@ class Command():
     self.name = self.cmd_name()
     self.args = self.cmd_args()
 
-  
+
   @classmethod
   def create(cls, name, args_):
     new_cmd = cls()
@@ -29,7 +22,7 @@ class Command():
 
   def validate_args(self, values: list):
     for value, arg in itertools.zip_longest(values, self.args):
-      if arg == None or not arg.validate(value):
+      if arg is None or not arg.validate(value):
         raise ValueError(f"Got incorrect arg type(s)!\nExpected: {[str(arg) for arg in self.args]}\nBut was: {[type(v) for v in values]}")
 
   def check_match(self, regex, line):
@@ -48,16 +41,24 @@ class Command():
       if arg.optional:
         regex += r'( [^ ]+)?'
       else:
-        regex += r' [^ ]+' 
+        regex += r' [^ ]+'
     return self.check_match(regex, line)
 
   def parse_args(self, line):
-    if not self.args: 
+    if not self.args:
       return []
     return line.split(' ')[1:]
 
+  # A one-line usage summary for 'help'. Commands with aliases or a
+  # non-standard syntax override this.
   def overview(self):
-    return f'{self.cmd_name()}: {[str(arg) for arg in self.cmd_args()]}'
+    parts = [self.name]
+    for arg in self.args or []:
+      name = arg.type.__name__
+      if arg.repeated:
+        name += '...'
+      parts.append(f'[{name}]' if arg.optional else f'<{name}>')
+    return ' '.join(parts)
 
   def execute(self, args_, context):
     pass

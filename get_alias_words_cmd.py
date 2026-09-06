@@ -6,6 +6,8 @@ from arg import Arg
 
 logger = logging.getLogger(__name__)
 
+RANDOM_ALIASES = ['r', 'rand', 'random']
+
 class GetAliasWords(Command):
 
   @staticmethod
@@ -17,7 +19,7 @@ class GetAliasWords(Command):
     return [Arg(str, repeated=True)]
 
   def overview(self):
-    return 'get_alias_words [gaw] (alias, rand)+'
+    return 'get_alias_words [gaw] {alias or r}+'
 
   def matches(self, line):
     regex = r'(get_alias_words|gaw)( \w+)+'
@@ -27,29 +29,27 @@ class GetAliasWords(Command):
     keys = []
     print_choices = False
     for arg in args_:
-      if arg in ['r', 'rand', 'random']:
-        choices = list(context.keys())
-        try:
-          choices.remove('words')
-        except ValueError:
-          pass # Word not in list, probably test
-        arg = random.choice(list(choices))
+      if arg in RANDOM_ALIASES:
+        # 'words' is the active pool, not a saved alias.
+        choices = [key for key in context.keys() if key != 'words']
+        if not choices:
+          print('No aliases are defined yet. Save one with "al <name>".')
+          return None
+        arg = random.choice(choices)
         print_choices = True
       if arg not in context:
         print(f"Arg {arg} was not found in context! Valid values are {list(context.keys())}.")
         return None
       keys.append(arg)
-    output = ''
-    for arg in keys:
-      output += random.choice(context[arg])
-      output += ' '
+
+    words = []
+    for key in keys:
+      if not context[key]:
+        print(f'Alias {key} is empty.')
+        return None
+      words.append(random.choice(context[key]))
+
+    output = ' '.join(words)
     if print_choices:
-      output += '['
-      for key in keys:
-        output += key
-        output += ' '
-    # Strip final space.
-    output = output[:-1]
-    if print_choices:
-      output += ']'
+      output += ' [' + ' '.join(keys) + ']'
     print(output)

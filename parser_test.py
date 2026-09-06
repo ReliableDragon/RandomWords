@@ -1,11 +1,12 @@
 import unittest
+from command_manager import CommandManager
 
 from unittest.mock import MagicMock, patch
 
 from command_list import CommandList
 from parser import Parser
 from command import Command
-from test_command import TestCommand
+from fake_command import FakeCommand
 from file_manager import FileManager
 
 class ParserTest(unittest.TestCase):
@@ -18,7 +19,7 @@ class ParserTest(unittest.TestCase):
     return mock_command
 
   def setUp(self):
-    self.test_cmd = TestCommand()
+    self.test_cmd = FakeCommand()
     self.test_cmd.name = 'pooble'
     
     self.fm = FileManager()
@@ -44,3 +45,43 @@ class ParserTest(unittest.TestCase):
     results = self.par.parse('ls a/b/c')
 
     self.assertEqual(results, (None, []))
+
+  def test_parse_every_documented_syntax(self):
+    """Commands are tried in registration order; this pins the precedence."""
+    cl = CommandList(FileManager())
+    CommandManager(cl).initialize_commands()
+    par = Parser(cl)
+
+    cases = [
+      ('ls', 'ls'), ('ls myth', 'ls'),
+      ('cd myth', 'cd'), ('pwd', 'pwd'),
+      ('load a.txt', 'load'), ('load alias', 'load'),
+      ('a/b.txt', 'load'), ('LOAD a.txt', 'load'),
+      ('', 'get_word'), ('word', 'get_word'), ('next', 'get_word'),
+      ('5', 'get_word'),
+      ('r', 'load_rand_file'), ('rand myth', 'load_rand_file'),
+      ('random', 'load_rand_file'),
+      ('dr', 'load_rand_dir_file'), ('dir_random', 'load_rand_dir_file'),
+      ('al foo', 'alias_load'), ('alias foo a.txt', 'alias_load'),
+      ('gaw foo bar', 'get_alias_words'),
+      ('help', 'help'),
+      ('mul myth war', 'multi_folder_get_words'),
+      ('c a b', 'combine'), ('d a b', 'diff'), ('i a b', 'intersection'),
+      ('rd', 'rand_diff'), ('rd 450', 'rand_diff'),
+      ('dump', 'dump'), ('dump all', 'dump'),
+      ('quit', 'quit'), ('exit', 'quit'), ('q', 'quit'),
+    ]
+    for line, expected in cases:
+      with self.subTest(line=line):
+        cmd, _ = par.parse(line)
+        self.assertIsNotNone(cmd, f'{line!r} matched no command')
+        self.assertEqual(cmd.name, expected)
+
+  def test_parse_strips_surrounding_whitespace(self):
+    cl = CommandList(FileManager())
+    CommandManager(cl).initialize_commands()
+    par = Parser(cl)
+
+    cmd, args_ = par.parse('  load a.txt  ')
+    self.assertEqual(cmd.name, 'load')
+    self.assertEqual(args_, ['a.txt'])

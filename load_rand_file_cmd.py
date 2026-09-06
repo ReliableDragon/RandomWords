@@ -16,7 +16,7 @@ class LoadRandFile(FileCommand):
     return [Arg(str, optional=True)]
 
   def overview(self):
-    return 'load_rand_file [r, rand, random]: folder?'
+    return 'load_rand_file [r, rand, random] [folder]'
 
   def matches(self, line):
     regex = r'(r|rand|random)( [\w\/]+)?'
@@ -25,12 +25,13 @@ class LoadRandFile(FileCommand):
   def execute(self, args_, context):
     folder = None
     if args_:
-      folder = args_[0]
-      folder = self.fm.get_rooted(folder)
+      folder = self.fm.get_rooted(args_[0])
     fname = self.fm.rand_file(folder)
-    if fname == None:
-      print(f'Invalid folder: {folder}')
+    if fname is None:
+      print(f'No .txt files found under {folder or self.fm.dir}.')
+      return None
+    words = self.fm.get_words(fname)
+    if not words:
       return None
     print(f'Loaded {fname}.')
-    words = self.fm.get_words(fname)
     return {'words': words}

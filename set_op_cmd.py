@@ -1,6 +1,5 @@
 import logging
 
-from file_manager import FileManager
 from file_command import FileCommand
 from arg import Arg
 
@@ -16,12 +15,12 @@ class SetOpCommand(FileCommand):
 
   @staticmethod
   def cmd_args():
-    return [Arg(str), Arg(str), Arg(str, optional=True)]
+    return [Arg(str), Arg(str, optional=True), Arg(str, optional=True)]
 
   def overview(self):
     name = self.aliases()[0]
-    aliases = '|'.join(self.aliases()[1:])
-    return f'{name} [{aliases}] in(/out){{alias, filename*}}(opt) in{{alias, filename}} out{{alias}}(opt)'
+    aliases = ', '.join(self.aliases()[1:])
+    return f'{name} [{aliases}] <alias|file.txt> [alias|file.txt] [out alias]'
 
   def matches(self, line):
     aliases = '|'.join(self.aliases())
@@ -31,41 +30,35 @@ class SetOpCommand(FileCommand):
   def parse_args(self, line):
     return line.strip().split(' ')[1:]
 
+  # Resolves a name that is either a saved pool or a file on disk.
+  def _get_words(self, name, context):
+    if name in context:
+      return context[name]
+    return self.fm.get_words(name)
+
   def execute(self, args_, context):
-    out_ctx = {}
     n1 = args_[0]
     if len(args_) == 1:
+      # One argument: operate on the active pool and write back to it.
       n2 = n1
       n1 = 'words'
     else:
       n2 = args_[1]
-    n3 = None
-    if len(args_) == 3:
-      n3 = args_[2]
+    n3 = args_[2] if len(args_) == 3 else None
 
-    w1 = None
-    if n3 == None:
-      assert n1 in context, f'Got name {n1} as first argument to two-parameter version of diff, but context only contained {context.keys()}'
-    if n1 in context:
-      w1 = context[n1]
-    else:
-      n1 = self.fm.get_rooted(n1)
-      w1 = self.fm.get_words(n1)
-      if not w1:
-        return None
+    if n3 is None and n1 not in context:
+      print(f'"{n1}" is not a saved pool. With two arguments, '
+            f'{self.aliases()[0]} writes its result back to the first one, '
+            f'so that argument must be an alias. '
+            f'Known names: {list(context.keys())}.')
+      return None
 
-    w2 = None
-    if n2 in context:
-      w2 = context[n2]
-    else:
-      n2 = self.fm.get_rooted(n2)
-      w2 = self.fm.get_words(n2)
-    if not w2: return None
+    w1 = self._get_words(n1, context)
+    if not w1:
+      return None
+    w2 = self._get_words(n2, context)
+    if not w2:
+      return None
 
-    words = list(self.set_operation(set(w1), set(w2)))
-    if n3 != None:
-      out_ctx[n3] = words
-    else:
-      out_ctx[n1] = words
-    return out_ctx
-
+    words = sorted(self.set_operation(set(w1), set(w2)))
+    return {n3 if n3 is not None else n1: words}

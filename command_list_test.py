@@ -1,18 +1,17 @@
 import unittest
 import logging
 
-from command import Command
 from command_list import CommandList
 from file_manager import FileManager
 from unittest.mock import MagicMock
-from test_command import TestCommand
+from fake_command import FakeCommand
 
 logger = logging.getLogger(__name__)
 
 class TestCommandList(unittest.TestCase):
 
   def setUp(self):
-    self.test_cmd = TestCommand()
+    self.test_cmd = FakeCommand()
     self.test_cmd.name = 'hurble'
     self.fm = FileManager()
     self.cl = CommandList(self.fm)
@@ -50,6 +49,6 @@ class TestCommandList(unittest.TestCase):
     with self.assertRaises(ValueError):
       self.init_cl()
 
-      burble_result = self.cl.get_cmd('burble')
+      self.cl.get_cmd('burble')
 
 

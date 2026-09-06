@@ -17,27 +17,28 @@ class MultiFolderGetWords(FileCommand):
     return [Arg(str, repeated=True)]
 
   def overview(self):
-    return 'multi_folder_get_words [mfgw, mul] {folder, filename, or alias}+'
+    return 'multi_folder_get_words [mfgw, mul] {folder, file.txt or alias}+'
 
   def matches(self, line):
     regex = r'(multi_folder_get_words|mfgw|mul)( [\w_\/\.]+)+'
     return self.check_match(regex, line)
 
   def execute(self, args_, context):
-    output = ''
-    for fname in args_:
-      if fname.endswith('.txt'):
-        file = self.fm.get_rooted(fname)
-        words = self.fm.get_words(file)
-      elif fname in context:
-        words = context[fname]
+    output = []
+    for name in args_:
+      if name.endswith('.txt'):
+        words = self.fm.get_words(name)
+      elif name in context:
+        words = context[name]
       else:
-        folder = self.fm.get_rooted(fname)
+        folder = self.fm.get_rooted(name)
         txts = self.fm.get_txts(folder)
-        txt = random.choice(txts)
-        words = self.fm.get_words(txt)
-      word = random.choice(words)
-      output += word + ' '
-    # Remove trailing space
-    output = output[:-1]
-    print(output)
+        if not txts:
+          print(f'No .txt files found under {name}.')
+          return None
+        words = self.fm.get_words(random.choice(txts))
+      if not words:
+        print(f'No words found for {name}.')
+        return None
+      output.append(random.choice(words))
+    print(' '.join(output))

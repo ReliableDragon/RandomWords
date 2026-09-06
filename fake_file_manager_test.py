@@ -1,11 +1,11 @@
 import unittest
 
-from test_file_manager import TestFileManager
+from fake_file_manager import FakeFileManager
 
-class TestFileManagerTest(unittest.TestCase):
+class FakeFileManagerTest(unittest.TestCase):
 
   def test_context_manager(self):
-    tfm = TestFileManager()
+    tfm = FakeFileManager()
     with self.assertRaises(AttributeError):
       tfm.dir.get_rooted()
     self.assertEqual(tfm.dir, 'invalid/')

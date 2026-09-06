@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, patch
 from command_manager import CommandManager
 from command_list import CommandList
 from file_manager import FileManager
-from test_command import TestCommand
+from fake_command import FakeCommand
 
 class CommandManagerTest(unittest.TestCase):
 
   def test_initialize_commands(self):
-    test_command = TestCommand()
+    test_command = FakeCommand()
     cl = MagicMock(spec=CommandList)
     with patch.object(cl, 'cmd_list', return_value=[test_command]):
       cm = CommandManager(cl)
@@ -21,7 +21,7 @@ class CommandManagerTest(unittest.TestCase):
 
 
   def test_execute(self):
-    test_command = TestCommand()
+    test_command = FakeCommand()
     cl = MagicMock(spec=CommandList)
     cm = CommandManager(cl, context={'test_key': 1000})
 
@@ -32,16 +32,16 @@ class CommandManagerTest(unittest.TestCase):
 
 
   def test_execute_err(self):
-    test_command = TestCommand()
+    test_command = FakeCommand()
     cl = MagicMock(spec=CommandList)
     cm = CommandManager(cl, context={'test_key': 1000})
 
     with self.assertRaises(ValueError):
-      result = cm.execute(test_command, [1, 2])
+      cm.execute(test_command, [1, 2])
 
 
   def test_initialize_and_execute(self):
-    test_command = TestCommand()
+    test_command = FakeCommand()
     with patch.object(CommandList, 'cmd_list', return_value=[test_command]):
       fm = MagicMock(spec=FileManager)
       cl = CommandList(fm)

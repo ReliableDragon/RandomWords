@@ -1,8 +1,10 @@
 import unittest
+import io
 
 from unittest.mock import MagicMock
+from contextlib import redirect_stdout
 
-from test_file_manager import TestFileManager
+from fake_file_manager import FakeFileManager
 from combine_cmd import Combine
 
 class CombineCmdTest(unittest.TestCase):
@@ -22,35 +24,40 @@ class CombineCmdTest(unittest.TestCase):
     self.assertEqual(al.parse_args('c one two three'), ['one', 'two', 'three'])
 
   def test_execute(self):
-    with TestFileManager() as tfm:
+    with FakeFileManager() as tfm:
       al = Combine(tfm)
       result = al.execute(['spenoik', tfm.td.tf1_name], {'spenoik': ['b', 'c', 'd']})
       self.assertTrue('spenoik' in result)
       self.assertCountEqual(result['spenoik'], ['a', 'b', 'c', 'd'])
 
   def test_execute_three_arg(self):
-    with TestFileManager() as tfm:
+    with FakeFileManager() as tfm:
       al = Combine(tfm)
       result = al.execute(['halmenk', tfm.td.tf1_name, 'dilau'], {'halmenk': ['b', 'c', 'd']})
       self.assertTrue('dilau' in result)
       self.assertCountEqual(result['dilau'], ['a', 'b', 'c', 'd'])
 
   def test_execute_two_aliases(self):
-    with TestFileManager() as tfm:
+    with FakeFileManager() as tfm:
       al = Combine(tfm)
       result = al.execute(['bleenu', 'turp', 'blizztu'], {'bleenu': ['1', '2', '3'], 'turp': ['3', '4', '5']})
       self.assertTrue('blizztu' in result)
       self.assertCountEqual(result['blizztu'], ['1', '2', '3', '4', '5'])
 
   def test_execute_two_files(self):
-    with TestFileManager() as tfm:
+    with FakeFileManager() as tfm:
       al = Combine(tfm)
       result = al.execute([tfm.td.tf5.name, tfm.td.tf1_name, 'erbint'], {})
       self.assertTrue('erbint' in result)
       self.assertCountEqual(result['erbint'], ['a', 'b', 'c', 'five'])
 
   def test_execute_two_args_err(self):
-    with TestFileManager() as tfm:
+    # With two arguments the result is written back to the first one, so a
+    # first argument that is not a saved pool is a user error, not a crash.
+    f = io.StringIO()
+    with (FakeFileManager() as tfm,
+      redirect_stdout(f)):
       al = Combine(tfm)
-      with self.assertRaises(AssertionError):
-        result = al.execute([tfm.td.tf5.name, tfm.td.tf1_name], {})
+      result = al.execute([tfm.td.tf5.name, tfm.td.tf1_name], {})
+      self.assertIsNone(result)
+    self.assertIn('is not a saved pool', f.getvalue())

@@ -1,6 +1,4 @@
-from file_manager import FileManager
 from set_op_cmd import SetOpCommand
-from arg import Arg
 
 class Intersection(SetOpCommand):
 

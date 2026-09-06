@@ -48,3 +48,15 @@ class GetAliasWordsTest(unittest.TestCase):
     with redirect_stdout(f):
       gaw.execute(['a', 'r'], {'a': ['aa'], 'b': ['bb'], 'words': ['BAD']})
     self.assertEqual(f.getvalue(), 'aa bb [a b]\n')
+
+  def test_execute_rand_without_aliases(self):
+    f = io.StringIO()
+    with redirect_stdout(f):
+      self.assertIsNone(GetAliasWords().execute(['r'], {'words': ['a']}))
+    self.assertIn('No aliases are defined', f.getvalue())
+
+  def test_execute_empty_alias(self):
+    f = io.StringIO()
+    with redirect_stdout(f):
+      self.assertIsNone(GetAliasWords().execute(['a'], {'a': []}))
+    self.assertIn('is empty', f.getvalue())

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from help_cmd import Help
 from command_list import CommandList
-from test_command import TestCommand
+from fake_command import FakeCommand
 from file_manager import FileManager
 from command_manager import CommandManager
 
@@ -17,8 +17,8 @@ class HelpTest(unittest.TestCase):
 
   def test_execute(self):
     cl = MagicMock(spec=CommandList)
-    cmd1 = TestCommand()
-    cmd2 = TestCommand()
+    cmd1 = FakeCommand()
+    cmd2 = FakeCommand()
     cmd1.cmd_name = lambda: 'abba'
     cmd1.name = 'abba'
     cmd2.overview = lambda: 'uwu'
@@ -28,7 +28,7 @@ class HelpTest(unittest.TestCase):
     with redirect_stdout(f):
       h.execute([], {})
 
-    self.assertEqual(f.getvalue(), "abba: ['Arg[str]', 'Arg[int, opt]']\nuwu\n")
+    self.assertEqual(f.getvalue(), 'abba <str> [int]\nuwu\n')
 
   def test_execute_correct_num_helps(self):
     fm = FileManager()

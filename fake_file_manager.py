@@ -1,17 +1,17 @@
 import logging
 
 from file_manager import FileManager
-from test_directories import TestDirectories
+from fake_directories import FakeDirectories
 
 logger = logging.getLogger(__name__)
 
-class TestFileManager(FileManager):
+class FakeFileManager(FileManager):
   
   def __init__(self, root = 'invalid/'):
     super().__init__(root)
 
   def __enter__(self):
-    self.td = TestDirectories()
+    self.td = FakeDirectories()
     self.td.__enter__()
     self.__init__(self.td.root)
 

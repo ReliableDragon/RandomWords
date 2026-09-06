@@ -2,12 +2,10 @@ import unittest
 import io
 
 from contextlib import redirect_stdout
-from unittest.mock import MagicMock
 
 from file_manager import FileManager
 from ls_cmd import LS
-from test_util import make_mock_file
-from test_directories import TestDirectories
+from fake_directories import FakeDirectories
 
 def get_files(ls_str):
   return ls_str.split('\n')[:-1]
@@ -18,7 +16,7 @@ class TestLS(unittest.TestCase):
     f = io.StringIO()
     with (
       redirect_stdout(f),
-      TestDirectories() as td):
+      FakeDirectories() as td):
       fm = FileManager(td.root)
       ls = LS(fm)
       ls.execute([], None)
@@ -29,7 +27,7 @@ class TestLS(unittest.TestCase):
     f = io.StringIO()
     with (
       redirect_stdout(f),
-      TestDirectories() as td):
+      FakeDirectories() as td):
       fm = FileManager(td.root)
       ls = LS(fm)
       ls.execute([td.root], None)
@@ -40,7 +38,7 @@ class TestLS(unittest.TestCase):
     f = io.StringIO()
     with (
       redirect_stdout(f),
-      TestDirectories() as td):
+      FakeDirectories() as td):
       fm = FileManager(td.root)
       ls = LS(fm)
       ls.execute([td.d2_name], None)
@@ -51,7 +49,7 @@ class TestLS(unittest.TestCase):
     f = io.StringIO()
     with (
       redirect_stdout(f),
-      TestDirectories() as td):
+      FakeDirectories() as td):
       fm = FileManager(td.d4.name)
       ls = LS(fm)
       ls.execute([td.d3.name], None)
@@ -62,9 +60,16 @@ class TestLS(unittest.TestCase):
     f = io.StringIO()
     with (
       redirect_stdout(f),
-      TestDirectories() as td):
+      FakeDirectories() as td):
       fm = FileManager(td.d4.name)
       ls = LS(fm)
       ls.execute(['shmooble/'], {})
       
     self.assertEqual(f.getvalue(), f"File '{fm.dir}shmooble/' not found.\n")
+
+  def test_execute_missing_current_dir_names_it(self):
+    f = io.StringIO()
+    fm = FileManager('/no/such/place/')
+    with redirect_stdout(f):
+      LS(fm).execute([], None)
+    self.assertEqual(f.getvalue(), "File '/no/such/place/' not found.\n")

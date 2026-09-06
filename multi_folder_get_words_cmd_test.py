@@ -1,17 +1,17 @@
 import unittest
-import random
+import os
 import io
 
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from multi_folder_get_words_cmd import MultiFolderGetWords
-from test_file_manager import TestFileManager
+from fake_file_manager import FakeFileManager
 
 class MultiFolderGetWordsTest(unittest.TestCase):
 
   def test_matches(self):
-    with TestFileManager() as tfm:
+    with FakeFileManager() as tfm:
       mfgw = MultiFolderGetWords(tfm)
       self.assertTrue(mfgw.matches('mfgw dragon/blood newt/eye virgin/tear')) 
       self.assertTrue(mfgw.matches('mul a_b'))
@@ -22,7 +22,7 @@ class MultiFolderGetWordsTest(unittest.TestCase):
   def test_execute(self, mock_choice):
     mock_choice.side_effect = lambda a: sorted(a)[0]
     f = io.StringIO()
-    with (TestFileManager() as tfm,
+    with (FakeFileManager() as tfm,
       redirect_stdout(f)):
       mfgw = MultiFolderGetWords(tfm)
       args_ = [tfm.td.d3.name, tfm.td.d4.name]
@@ -33,7 +33,7 @@ class MultiFolderGetWordsTest(unittest.TestCase):
   def test_execute_with_context(self, mock_choice):
     mock_choice.side_effect = lambda a: sorted(a)[0]
     f = io.StringIO()
-    with (TestFileManager() as tfm,
+    with (FakeFileManager() as tfm,
       redirect_stdout(f)):
       mfgw = MultiFolderGetWords(tfm)
       args_ = ['thlong', tfm.td.d4.name]
@@ -44,7 +44,7 @@ class MultiFolderGetWordsTest(unittest.TestCase):
   def test_execute_with_file(self, mock_choice):
     mock_choice.side_effect = lambda a: sorted(a)[0]
     f = io.StringIO()
-    with (TestFileManager() as tfm,
+    with (FakeFileManager() as tfm,
       redirect_stdout(f)):
       mfgw = MultiFolderGetWords(tfm)
       args_ = [tfm.td.tf1.name, tfm.td.d4.name]
@@ -55,7 +55,7 @@ class MultiFolderGetWordsTest(unittest.TestCase):
   def test_execute_with_rel_dirs(self, mock_choice):
     mock_choice.side_effect = lambda a: sorted(a)[0]
     f = io.StringIO()
-    with (TestFileManager() as tfm,
+    with (FakeFileManager() as tfm,
       redirect_stdout(f)):
       tfm.dir = tfm.td.d2.name
       mfgw = MultiFolderGetWords(tfm)
@@ -63,3 +63,13 @@ class MultiFolderGetWordsTest(unittest.TestCase):
       mfgw.execute(args_, {})
     self.assertEqual(f.getvalue(), 'aeschylinux five\n')
 
+  def test_execute_empty_folder(self):
+    f = io.StringIO()
+    with FakeFileManager() as tfm:
+      empty = os.path.join(tfm.td.root, 'empty')
+      os.mkdir(empty)
+      mfgw = MultiFolderGetWords(tfm)
+
+      with redirect_stdout(f):
+        self.assertIsNone(mfgw.execute([empty], {}))
+    self.assertIn('No .txt files found', f.getvalue())

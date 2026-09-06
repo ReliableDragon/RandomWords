@@ -1,5 +1,3 @@
-from typing import Any
-
 class Arg():
   
 
@@ -10,7 +8,7 @@ class Arg():
 
 
   def validate(self, value):
-    if value == None and self.optional:
+    if value is None and self.optional:
       return True
     if type(value) != self.type:
       return False

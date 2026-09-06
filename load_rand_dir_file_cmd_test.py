@@ -1,14 +1,11 @@
 import unittest
-import os
 import logging
-import pathlib
 import io
 
 from contextlib import redirect_stdout
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from file_manager import FileManager
-from test_file_manager import TestFileManager
+from fake_file_manager import FakeFileManager
 from load_rand_dir_file_cmd import LoadRandDirFile
 
 logger = logging.getLogger(__name__)
@@ -20,7 +17,7 @@ class LoadRandFileTest(unittest.TestCase):
     mock_choice.side_effect = lambda a: sorted(a)[-1]
     f = io.StringIO()
 
-    with (TestFileManager() as tfm,
+    with (FakeFileManager() as tfm,
       redirect_stdout(f)):
         lrf = LoadRandDirFile(tfm)
         result = lrf.execute([], None)

@@ -18,12 +18,15 @@ class LoadRandDirFile(FileCommand):
     return 'load_rand_dir_file [dr, drand, dir_random]'
 
   def matches(self, line):
-    if line in ['dr', 'drand', 'dir_random']:
-      return True
-    return False
+    return line.strip().lower() in ['dr', 'drand', 'dir_random']
 
   def execute(self, args_, context):
     fname = self.fm.rand_dir()
-    print(f'Loaded {fname}.')
+    if fname is None:
+      print(f'No .txt files found under {self.fm.dir}.')
+      return None
     words = self.fm.get_words(fname)
+    if not words:
+      return None
+    print(f'Loaded {fname}.')
     return {'words': words}

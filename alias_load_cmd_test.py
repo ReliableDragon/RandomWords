@@ -2,7 +2,7 @@ import unittest
 
 from unittest.mock import MagicMock
 
-from test_file_manager import TestFileManager
+from fake_file_manager import FakeFileManager
 from alias_load_cmd import AliasLoad
 
 class AliasLoadTest(unittest.TestCase):
@@ -23,14 +23,14 @@ class AliasLoadTest(unittest.TestCase):
     self.assertEqual(al.parse_args('alias_load one two'), ['one', 'two'])
 
   def test_execute(self):
-    with TestFileManager() as tfm:
+    with FakeFileManager() as tfm:
       al = AliasLoad(tfm)
       result = al.execute(['dooble', tfm.td.tf1_name], {})
       self.assertTrue('dooble' in result)
       self.assertCountEqual(result['dooble'], ['a', 'b', 'c'])
 
   def test_execute_context_read(self):
-    with TestFileManager() as tfm:
+    with FakeFileManager() as tfm:
       al = AliasLoad(tfm)
       result = al.execute(['dooble'], {'words': ['1', '2', '3']})
       self.assertTrue('dooble' in result)

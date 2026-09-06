@@ -1,14 +1,14 @@
 from arg import Arg
 from command import Command
 
-class TestCommand(Command):
+class FakeCommand(Command):
 
   def __init__(self):
     super().__init__()
 
   @staticmethod
   def cmd_name():
-    return 'TestCommand'
+    return 'FakeCommand'
 
   @staticmethod
   def cmd_args():

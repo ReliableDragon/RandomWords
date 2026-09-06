@@ -1,12 +1,12 @@
 import os
 import unittest
 
-from test_directories import TestDirectories
+from fake_directories import FakeDirectories
 
-class TestDirectoriesTest(unittest.TestCase):
+class FakeDirectoriesTest(unittest.TestCase):
   
   def test_context(self):
-    with TestDirectories() as  td:
+    with FakeDirectories() as  td:
       self.assertTrue(os.path.exists(td.d1.name))
       self.assertFalse(os.path.isfile(td.d1.name))
       self.assertTrue(os.path.exists(td.d2.name))
