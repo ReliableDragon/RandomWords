@@ -75,6 +75,65 @@ ambergris
 
 `quit`, `exit`, `q`, Ctrl-D, and Ctrl-C all leave cleanly.
 
+## The browser interface
+
+The same commands are also reachable in a browser. Start the server:
+
+```bash
+python3 serve.py
+```
+
+It binds to `127.0.0.1:8100` and prints its address. `--port` moves it,
+`--words` picks the startup pool, and `--no-warm` skips the startup read of
+the dictionaries.
+
+On startup it reads the four dictionaries, which takes about a third of a
+second, then reads the 132 books on a background thread over the next six.
+After that a draw from any text is instant: a warm read of the 450k
+dictionary takes 49 microseconds rather than 256 milliseconds. The whole
+parsed corpus is 1.8 million words, comfortably inside the cache's two
+million word budget, so nothing is evicted in practice.
+
+The page has a library on the left and a bench on the right. Click a text to
+load it, then draw. The last twenty draws stay on screen, and clicking any
+word keeps it; kept words survive a restart in browser storage and can be
+copied or exported as a one-word-per-line file.
+
+### What the server exposes
+
+| Method | Path | Body or query | Does |
+|---|---|---|---|
+| `GET` | `/api/library` | `?path=myth` | Folders and texts, with a word count for texts already read |
+| `GET` | `/api/pools` | | Every pool with its size |
+| `GET` | `/api/status` | | Cache statistics and pools |
+| `POST` | `/api/pools/load` | `{source}` | Loads a text or a saved pool |
+| `POST` | `/api/pools/random` | `{under, mode}` | Loads a random text; `mode` is `flat` or `walk` |
+| `POST` | `/api/draw` | `{count}` | Draws from the active pool, capped at 1000 |
+| `POST` | `/api/command` | `{line}` | Runs a line of the command language |
+
+Pool contents never cross this boundary, only sizes and the words actually
+drawn. The largest pool is six megabytes of JSON, to support a draw that
+takes under a microsecond on the server.
+
+Responses carry `{ok, message}` and sometimes `data`. The status is a
+function of `ok` and `confirm`: 400 for anything the user got wrong, 409
+when a command needs a yes before it acts, 500 for anything unhandled.
+
+### Why it is only for you
+
+Binding to loopback keeps the network out. It does not keep out a web page:
+any tab in the same browser can post to a loopback server, and DNS rebinding
+lets a page the attacker controls read the replies too. Three checks close
+that, and `web_server_test.py` drives each one:
+
+1. The `Host` header must name localhost with the served port.
+2. Every POST must be `application/json`, a type a cross-origin form cannot
+   send without a preflight this server never answers.
+3. An `Origin` header, when present, must match the served origin.
+
+There is no authentication, which is only defensible while the bind address
+is loopback. Those two decisions have to move together.
+
 ## Concepts
 
 ### The context and the active pool
@@ -251,6 +310,11 @@ Everything is in the repository root; there is no package structure.
 | `*_cmd.py` | One file per command (see the table below). |
 | `command_list.py` | `CommandList`: constructs every command instance (`cmd_list`) and holds the name → command registry. Registration order is the order the parser tries matches in. |
 | `command_manager.py` | `CommandManager`: owns the context. `execute` runs a command, pops a `result` key from what it returns, and merges the rest into the context. |
+| `word_cache.py` | `CachingFileManager`: a `FileManager` that remembers what it has read, keyed by path and modification time and bounded by total words. The terminal does not need it; a browser does. |
+| `session.py` | `Session`, one person's pools and the commands that change them, and `SessionStore`, the one place identity would go. |
+| `web_routes.py` | Route handlers, as plain functions from a request to a status and a payload, so the transport can be swapped without touching them. |
+| `web_server.py` | The standard-library HTTP server, the origin checks, and static file serving from a fixed table. |
+| `serve.py` | Entry point for the browser interface. Warms the dictionaries, then the books. |
 | `parser.py` | `Parser`: reads a line and finds the first command whose `matches` accepts it. A line nothing claims comes back as `(None, [])`, and the caller turns that into a result. Importing it enables `readline` line editing where available. |
 
 Command classes:
@@ -319,17 +383,19 @@ python3 -m unittest discover -p '*_test.py'
 The pattern is required because the tests are named `*_test.py`, which the
 default discovery pattern (`test*.py`) does not match.
 
-There are 149 tests and they all pass. Files named `fake_*.py`
+There are 207 tests and they all pass. Files named `fake_*.py`
 (`fake_command.py`, `fake_directories.py`, `fake_file_manager.py`) are test
 doubles, not test cases. Tests that touch the filesystem build a temporary
 directory tree through `FakeDirectories` / `FakeFileManager` rather than
 mocking, so they need a writable temp dir. Tests that involve randomness
 patch `random.choice` with a deterministic function.
 
-`path_safety_test.py` is the one to keep an eye on. It drives every command
-that takes a path, through the real parser and command manager, with every
-spelling of a path that tries to leave the library, and asserts each is
-refused and that the session is unchanged.
+Two files are worth keeping an eye on. `path_safety_test.py` drives every
+command that takes a path, through the real parser and command manager, with
+every spelling of a path that tries to leave the library, and asserts each is
+refused and the session unchanged. `web_server_test.py` runs a real server on
+an ephemeral port and drives the origin table above with the headers a
+browser would really send.
 
 ## Known limitations
 
@@ -339,9 +405,13 @@ refused and that the session is unchanged.
   the tool had a working directory, and is not now. If you want it back, the
   intended shape is a second root given at startup rather than a path that
   escapes the first one.
-- Words are re-extracted from disk on every command that reads a file; the
-  450k dictionary takes about a quarter of a second each time. There is no
-  cache.
+- The terminal tool re-reads a file on every command that touches it; the
+  450k dictionary takes about a quarter of a second each time. The server
+  caches, the terminal deliberately does not, because a person types slower
+  than a parse.
+- The browser interface cannot yet save, rename or combine pools. That is
+  the next phase; until then the command line is the way to do it, and the
+  terminal has all of it.
 - `Command.validate_args` can only ever check `str` arguments, because
   `parse_args` yields strings for every command except `get_word`.
 - Sampling is uniform over distinct spellings, not over occurrences, so rare

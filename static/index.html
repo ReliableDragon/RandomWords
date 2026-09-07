@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RandomWords</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden>
+  <span id="toastMessage" class="toast-message"></span>
+  <button id="toastClose" class="toast-close" type="button" aria-label="Dismiss message">&times;</button>
+</div>
+
+<div class="app">
+
+  <aside class="library" aria-label="Library">
+    <div class="library-head">
+      <h1 class="brand">RandomWords</h1>
+      <p class="tagline">132 old books, plus four dictionaries.</p>
+      <div class="random-actions">
+        <button id="randFlatBtn" class="btn btn-quiet" type="button">
+          <span class="btn-label">Any text</span>
+          <span class="btn-note">flat &middot; every text equally likely</span>
+        </button>
+        <button id="randWalkBtn" class="btn btn-quiet" type="button">
+          <span class="btn-label">Wander</span>
+          <span class="btn-note">walk &middot; favours small collections</span>
+        </button>
+      </div>
+    </div>
+    <div id="tree" class="tree" role="tree" aria-label="Library contents">
+      <p class="tree-loading">Reading the library&hellip;</p>
+    </div>
+  </aside>
+
+  <main class="bench" aria-label="Bench">
+
+    <section class="draw-area">
+      <div id="currentWords" class="current-words" data-count="1" aria-live="polite"></div>
+      <p id="sourceLine" class="source-line">&nbsp;</p>
+
+      <div class="draw-controls">
+        <div class="stepper" role="group" aria-label="Number of words to draw">
+          <button id="stepDown" class="stepper-btn" type="button" aria-label="Decrease count">&minus;</button>
+          <input id="countInput" class="stepper-input" type="number" inputmode="numeric" min="1" max="1000" step="1" value="1" aria-label="Words to draw">
+          <button id="stepUp" class="stepper-btn" type="button" aria-label="Increase count">+</button>
+        </div>
+        <button id="drawBtn" class="btn btn-primary" type="button">
+          Draw <kbd class="key-hint">Space</kbd>
+        </button>
+      </div>
+    </section>
+
+    <section class="history" aria-label="Draw history">
+      <h2 class="section-title">History</h2>
+      <div id="historyList" class="history-list">
+        <p class="empty-note">Words you draw will collect here, most recent first.</p>
+      </div>
+    </section>
+
+    <section class="kept" aria-label="Kept words">
+      <div class="kept-head">
+        <h2 class="section-title">Kept <span id="keptCount" class="kept-count">(0)</span></h2>
+        <div class="kept-actions">
+          <button id="copyBtn" class="btn btn-quiet btn-small" type="button">Copy</button>
+          <button id="exportBtn" class="btn btn-quiet btn-small" type="button">Export</button>
+        </div>
+      </div>
+      <div id="keptList" class="kept-list">
+        <p class="empty-note">Click a word, anywhere, to keep it.</p>
+      </div>
+    </section>
+
+  </main>
+
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
