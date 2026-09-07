@@ -3,6 +3,7 @@ import logging
 from file_command import FileCommand
 from arg import Arg
 from command_result import CommandResult
+from file_manager import UnreadableSource
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +55,15 @@ class SetOpCommand(FileCommand):
              f'Known names: {list(context.keys())}.')
       return CommandResult.fail(msg)
 
-    w1 = self._get_words(n1, context)
-    if not w1:
-      return CommandResult()
-    w2 = self._get_words(n2, context)
-    if not w2:
-      return CommandResult()
+    try:
+      w1 = self._get_words(n1, context)
+      if not w1:
+        return CommandResult()
+      w2 = self._get_words(n2, context)
+      if not w2:
+        return CommandResult()
+    except UnreadableSource as e:
+      return CommandResult.fail(str(e))
 
     words = sorted(self.set_operation(set(w1), set(w2)))
     name = n3 if n3 is not None else n1

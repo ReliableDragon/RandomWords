@@ -1,6 +1,7 @@
 from arg import Arg
 from command_result import CommandResult
 from file_command import FileCommand
+from file_manager import UnreadableSource
 
 class Load(FileCommand):
 
@@ -30,7 +31,11 @@ class Load(FileCommand):
   def execute(self, args_, context):
     source = args_[0]
     if source.endswith('.txt'):
-      words = self.fm.get_words(source)
+      try:
+        words = self.fm.get_words(source)
+      except UnreadableSource as e:
+        return CommandResult.fail(
+            f'{e}\nNo words found in {source}; keeping the current pool.')
     elif source in context:
       words = context[source]
     else:

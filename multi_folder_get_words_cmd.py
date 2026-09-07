@@ -4,6 +4,7 @@ import logging
 from file_command import FileCommand
 from arg import Arg
 from command_result import CommandResult
+from file_manager import UnreadableSource
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +28,19 @@ class MultiFolderGetWords(FileCommand):
   def execute(self, args_, context):
     output = []
     for name in args_:
-      if name.endswith('.txt'):
-        words = self.fm.get_words(name)
-      elif name in context:
-        words = context[name]
-      else:
-        folder = self.fm.get_rooted(name)
-        txts = self.fm.get_txts(folder)
-        if not txts:
-          return CommandResult.fail(f'No .txt files found under {name}.')
-        words = self.fm.get_words(random.choice(txts))
+      try:
+        if name.endswith('.txt'):
+          words = self.fm.get_words(name)
+        elif name in context:
+          words = context[name]
+        else:
+          folder = self.fm.get_rooted(name)
+          txts = self.fm.get_txts(folder)
+          if not txts:
+            return CommandResult.fail(f'No .txt files found under {name}.')
+          words = self.fm.get_words(random.choice(txts))
+      except UnreadableSource as e:
+        return CommandResult.fail(f'{e}\nNo words found for {name}.')
       if not words:
         return CommandResult.fail(f'No words found for {name}.')
       output.append(random.choice(words))

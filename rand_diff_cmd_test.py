@@ -65,7 +65,6 @@ class RandDiffTest(unittest.TestCase):
 
   @patch('random.choice')
   def test_execute_no_files(self, mock_choice):
-    f = io.StringIO()
     with FakeFileManager() as tfm:
       empty = os.path.join(tfm.td.root, 'empty')
       os.mkdir(empty)

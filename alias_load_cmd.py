@@ -1,6 +1,7 @@
 from file_command import FileCommand
 from command_result import CommandResult
 from arg import Arg
+from file_manager import UnreadableSource
 
 OVERWRITE_QUESTION = 'Alias exists. Overwrite? y/N'
 
@@ -28,7 +29,11 @@ class AliasLoad(FileCommand):
     alias = args_[0]
     if len(args_) == 2:
       # get_words resolves the path itself.
-      words = self.fm.get_words(args_[1])
+      try:
+        words = self.fm.get_words(args_[1])
+      except UnreadableSource as e:
+        return CommandResult.fail(
+            f'{e}\nNo words found in {args_[1]}; alias not created.')
     else:
       words = context.get('words')
 

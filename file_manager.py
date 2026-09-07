@@ -25,6 +25,10 @@ GUTENBERG_HEADER = '*** START OF THE PROJECT GUTENBERG EBOOK'
 GUTENBERG_FOOTER = '*** END OF THE PROJECT GUTENBERG EBOOK'
 
 
+class UnreadableSource(Exception):
+  """A text that could not be read. The message is user-facing."""
+
+
 class FileManager():
 
   # dir_: str The absolute path to the source directory.
@@ -111,17 +115,18 @@ class FileManager():
   # Gets all of the words present in a file.
   #
   # filename: The file to read, resolved by get_rooted.
-  # Returns: The distinct lower-cased words in the file, or None if the
-  # file could not be read.
-  def get_words(self, filename) -> list[str] | None:
+  # Returns: The distinct lower-cased words in the file.
+  # Raises: UnreadableSource if the file could not be read.
+  def get_words(self, filename) -> list[str]:
     filename = self.get_rooted(filename)
 
     try:
       with open(filename, encoding='utf-8', errors='replace') as f:
         txt = f.read()
     except OSError:
-      print(f'Invalid filename: {filename}')
-      return None
+      # `from None`: this replaces the OSError rather than being an accident
+      # while handling it, so a stray traceback shows one exception, not two.
+      raise UnreadableSource(f'Invalid filename: {filename}') from None
 
     txt = self.remove_gutenberg(txt)
     tokens = WORD_RE.findall(txt)

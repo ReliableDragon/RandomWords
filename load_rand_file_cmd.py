@@ -3,6 +3,7 @@ import logging
 from file_command import FileCommand
 from arg import Arg
 from command_result import CommandResult
+from file_manager import UnreadableSource
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,10 @@ class LoadRandFile(FileCommand):
     fname = self.fm.rand_file(folder)
     if fname is None:
       return CommandResult.fail(f'No .txt files found under {folder or self.fm.dir}.')
-    words = self.fm.get_words(fname)
+    try:
+      words = self.fm.get_words(fname)
+    except UnreadableSource as e:
+      return CommandResult.fail(str(e))
     if not words:
       return CommandResult()
     return CommandResult(

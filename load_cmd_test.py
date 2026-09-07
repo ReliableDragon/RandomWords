@@ -1,6 +1,4 @@
 import unittest
-from contextlib import redirect_stdout
-import io
 
 from unittest.mock import MagicMock
 
@@ -50,16 +48,15 @@ class LoadTest(unittest.TestCase):
     self.assertEqual(l.parse_args('Load a/b/C.txt'), ['a/b/C.txt'])
 
   def test_execute_missing_file_keeps_pool(self):
-    # FileManager.get_words still prints its own diagnostic directly; that
-    # is unrelated to Load's own message and stays on stdout.
-    f = io.StringIO()
-    with (FakeFileManager() as tfm,
-      redirect_stdout(f)):
+    with FakeFileManager() as tfm:
       load = Load(tfm)
       result = load.execute(['nope.txt'], {})
-    self.assertIn('Invalid filename', f.getvalue())
+      expected_path = tfm.get_rooted('nope.txt')
     self.assertFalse(result.ok)
-    self.assertEqual(result.message, 'No words found in nope.txt; keeping the current pool.')
+    self.assertEqual(
+        result.message,
+        f'Invalid filename: {expected_path}\n'
+        'No words found in nope.txt; keeping the current pool.')
 
   def test_execute_unknown_alias_keeps_pool(self):
     with FakeFileManager() as tfm:

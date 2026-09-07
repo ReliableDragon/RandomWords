@@ -1,7 +1,5 @@
 import unittest
-import io
 
-from contextlib import redirect_stdout
 from unittest.mock import MagicMock
 
 from fake_file_manager import FakeFileManager
@@ -52,15 +50,14 @@ class IntersectionCommandTest(unittest.TestCase):
       self.assertCountEqual(result.updates['erbint'], [])
 
   def test_execute_bad_file(self):
-    f = io.StringIO()
-    with (FakeFileManager() as tfm,
-      redirect_stdout(f)):
+    with FakeFileManager() as tfm:
       al = Intersection(tfm)
       context = {'pleebex': ['a', 'b', 'c']}
       result = al.execute(['pleebex', 'bad_file.txt', 'erbint'], context)
       self.assertFalse(result.updates)
       self.assertCountEqual(context['pleebex'], ['a', 'b', 'c'])
-      self.assertEqual(f.getvalue(), f'Invalid filename: {tfm.td.root}bad_file.txt\n')
+      self.assertFalse(result.ok)
+      self.assertEqual(result.message, f'Invalid filename: {tfm.td.root}bad_file.txt')
 
   def test_execute_two_args_err(self):
     # With two arguments the result is written back to the first one, so a

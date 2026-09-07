@@ -7,7 +7,7 @@ from unittest.mock import patch, mock_open
 from contextlib import redirect_stdout
 
 import file_manager
-from file_manager import FileManager
+from file_manager import FileManager, UnreadableSource
 from fake_directories import FakeDirectories
 
 logger = logging.getLogger(__name__)
@@ -203,11 +203,11 @@ class FileManagerTest(unittest.TestCase):
     self.assertCountEqual(fm.get_words('unused'), ['alpontris'])
 
   def test_get_words_missing_file(self):
-    f = io.StringIO()
-    with redirect_stdout(f):
-      fm = FileManager(None)
-      self.assertIsNone(fm.get_words('no_such_file.txt'))
-    self.assertIn('Invalid filename', f.getvalue())
+    fm = FileManager(None)
+    expected_path = fm.get_rooted('no_such_file.txt')
+    with self.assertRaises(UnreadableSource) as ctx:
+      fm.get_words('no_such_file.txt')
+    self.assertEqual(str(ctx.exception), f'Invalid filename: {expected_path}')
 
   def test_ls_skips_hidden_dirs(self):
     with FakeDirectories() as td:

@@ -2,6 +2,7 @@ import logging
 
 from file_command import FileCommand
 from command_result import CommandResult
+from file_manager import UnreadableSource
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,10 @@ class LoadRandDirFile(FileCommand):
     fname = self.fm.rand_dir()
     if fname is None:
       return CommandResult.fail(f'No .txt files found under {self.fm.dir}.')
-    words = self.fm.get_words(fname)
+    try:
+      words = self.fm.get_words(fname)
+    except UnreadableSource as e:
+      return CommandResult.fail(str(e))
     if not words:
       return CommandResult()
     return CommandResult(
