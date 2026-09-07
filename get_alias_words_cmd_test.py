@@ -1,8 +1,6 @@
 import unittest
-import io
 
 from unittest.mock import patch
-from contextlib import redirect_stdout
 
 from get_alias_words_cmd import GetAliasWords
 
@@ -18,45 +16,35 @@ class GetAliasWordsTest(unittest.TestCase):
 
   def test_execute(self):
     gaw = GetAliasWords()
-    f = io.StringIO()
-    with redirect_stdout(f):
-      gaw.execute(['a', 'b'], {'a': ['aa'], 'b': ['bb']})
-    self.assertEqual(f.getvalue(), 'aa bb\n')
+    result = gaw.execute(['a', 'b'], {'a': ['aa'], 'b': ['bb']})
+    self.assertEqual(result.message, 'aa bb')
 
   def test_execute_err(self):
     gaw = GetAliasWords()
-    f = io.StringIO()
-    with redirect_stdout(f):
-      result = gaw.execute(['a', 'b', 'c'], {'a': ['aa'], 'b': ['bb']})
-      self.assertIsNone(result)
-    self.assertEqual(f.getvalue(), "Arg c was not found in context! Valid values are ['a', 'b'].\n")
-      
+    result = gaw.execute(['a', 'b', 'c'], {'a': ['aa'], 'b': ['bb']})
+    self.assertFalse(result.ok)
+    self.assertEqual(result.message, "Arg c was not found in context! Valid values are ['a', 'b'].")
+
   @patch('random.choice')
   def test_execute_rand(self, mock_choice):
     mock_choice.side_effect = lambda a: sorted(a)[-1]
     gaw = GetAliasWords()
-    f = io.StringIO()
-    with redirect_stdout(f):
-      gaw.execute(['a', 'r'], {'a': ['aa'], 'b': ['bb']})
-    self.assertEqual(f.getvalue(), 'aa bb [a b]\n')
+    result = gaw.execute(['a', 'r'], {'a': ['aa'], 'b': ['bb']})
+    self.assertEqual(result.message, 'aa bb [a b]')
 
   @patch('random.choice')
   def test_execute_rand_removes_words(self, mock_choice):
     mock_choice.side_effect = lambda a: sorted(a)[-1]
     gaw = GetAliasWords()
-    f = io.StringIO()
-    with redirect_stdout(f):
-      gaw.execute(['a', 'r'], {'a': ['aa'], 'b': ['bb'], 'words': ['BAD']})
-    self.assertEqual(f.getvalue(), 'aa bb [a b]\n')
+    result = gaw.execute(['a', 'r'], {'a': ['aa'], 'b': ['bb'], 'words': ['BAD']})
+    self.assertEqual(result.message, 'aa bb [a b]')
 
   def test_execute_rand_without_aliases(self):
-    f = io.StringIO()
-    with redirect_stdout(f):
-      self.assertIsNone(GetAliasWords().execute(['r'], {'words': ['a']}))
-    self.assertIn('No aliases are defined', f.getvalue())
+    result = GetAliasWords().execute(['r'], {'words': ['a']})
+    self.assertFalse(result.ok)
+    self.assertIn('No aliases are defined', result.message)
 
   def test_execute_empty_alias(self):
-    f = io.StringIO()
-    with redirect_stdout(f):
-      self.assertIsNone(GetAliasWords().execute(['a'], {'a': []}))
-    self.assertIn('is empty', f.getvalue())
+    result = GetAliasWords().execute(['a'], {'a': []})
+    self.assertFalse(result.ok)
+    self.assertIn('is empty', result.message)

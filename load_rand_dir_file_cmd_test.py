@@ -1,8 +1,6 @@
 import unittest
 import logging
-import io
 
-from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from fake_file_manager import FakeFileManager
@@ -15,12 +13,10 @@ class LoadRandFileTest(unittest.TestCase):
   @patch('random.choice')
   def test_execute(self, mock_choice):
     mock_choice.side_effect = lambda a: sorted(a)[-1]
-    f = io.StringIO()
 
-    with (FakeFileManager() as tfm,
-      redirect_stdout(f)):
-        lrf = LoadRandDirFile(tfm)
-        result = lrf.execute([], None)
+    with FakeFileManager() as tfm:
+      lrf = LoadRandDirFile(tfm)
+      result = lrf.execute([], None)
 
-        self.assertTrue('words' in result)
-        self.assertCountEqual(result['words'], ['one', 'two', 'three'])
+      self.assertTrue('words' in result.updates)
+      self.assertCountEqual(result.updates['words'], ['one', 'two', 'three'])

@@ -61,3 +61,12 @@ class RandomWordsTest(unittest.TestCase):
         rw.run('no_such_file.txt')
       self.assertNotIn('words', cm.context)
     self.assertIn('No words are loaded', f.getvalue())
+
+  def test_run_reports_an_unresolved_line(self):
+    f = io.StringIO()
+    with FakeFileManager() as tfm:
+      rw, _, _ = self.build(tfm)
+      with (patch('builtins.input', side_effect=['zzz nonsense', 'quit']),
+        redirect_stdout(f)):
+        rw.run(tfm.td.tf1.name)
+    self.assertIn("I'm sorry, I don't understand.", f.getvalue())

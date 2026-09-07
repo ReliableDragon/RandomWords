@@ -1,4 +1,5 @@
 from arg import Arg
+from command_result import CommandResult
 from file_command import FileCommand
 
 class Load(FileCommand):
@@ -33,10 +34,8 @@ class Load(FileCommand):
     elif source in context:
       words = context[source]
     else:
-      print(f'Tried to load from context value {source}, but valid values are {list(context.keys())}.')
-      return None
+      return CommandResult.fail(f'Tried to load from context value {source}, but valid values are {list(context.keys())}.')
 
     if not words:
-      print(f'No words found in {source}; keeping the current pool.')
-      return None
-    return {'words': words}
+      return CommandResult.fail(f'No words found in {source}; keeping the current pool.')
+    return CommandResult(updates={'words': words}, data={'size': len(words)})

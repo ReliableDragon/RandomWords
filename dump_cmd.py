@@ -1,4 +1,5 @@
 from command import Command
+from command_result import CommandResult
 from arg import Arg
 
 class Dump(Command):
@@ -16,11 +17,13 @@ class Dump(Command):
 
   def execute(self, args_, context):
     if args_ and args_[0].lower() in ['all', 'full']:
-      print(f'context: {context}')
-      return
+      return CommandResult(message=f'context: {context}')
     if not context:
-      print('Nothing is loaded.')
-      return
+      return CommandResult(message='Nothing is loaded.')
+    lines = []
+    pools = []
     for name, words in context.items():
       label = 'words (active pool)' if name == 'words' else name
-      print(f'{label}: {len(words)} words')
+      lines.append(f'{label}: {len(words)} words')
+      pools.append({'name': name, 'size': len(words)})
+    return CommandResult(message='\n'.join(lines), data={'pools': pools})

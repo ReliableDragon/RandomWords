@@ -26,13 +26,39 @@ class AliasLoadTest(unittest.TestCase):
     with FakeFileManager() as tfm:
       al = AliasLoad(tfm)
       result = al.execute(['dooble', tfm.td.tf1_name], {})
-      self.assertTrue('dooble' in result)
-      self.assertCountEqual(result['dooble'], ['a', 'b', 'c'])
+      self.assertIn('dooble', result.updates)
+      self.assertCountEqual(result.updates['dooble'], ['a', 'b', 'c'])
+      self.assertFalse(result.confirm)
 
   def test_execute_context_read(self):
     with FakeFileManager() as tfm:
       al = AliasLoad(tfm)
       result = al.execute(['dooble'], {'words': ['1', '2', '3']})
-      self.assertTrue('dooble' in result)
-      self.assertCountEqual(result['dooble'], ['1', '2', '3'])
+      self.assertIn('dooble', result.updates)
+      self.assertCountEqual(result.updates['dooble'], ['1', '2', '3'])
 
+  def test_execute_existing_alias_asks_first(self):
+    with FakeFileManager() as tfm:
+      al = AliasLoad(tfm)
+      context = {'words': ['1', '2', '3'], 'dooble': ['old']}
+
+      result = al.execute(['dooble'], context)
+
+      # The command neither asks nor applies; it reports what needs asking.
+      self.assertEqual(result.confirm, 'Alias exists. Overwrite? y/N')
+      self.assertCountEqual(result.updates['dooble'], ['1', '2', '3'])
+      self.assertEqual(context['dooble'], ['old'])
+
+  def test_execute_missing_file(self):
+    with FakeFileManager() as tfm:
+      al = AliasLoad(tfm)
+      result = al.execute(['dooble', 'no_such_file.txt'], {})
+      self.assertFalse(result.ok)
+      self.assertIn('alias not created', result.message)
+
+  def test_execute_without_words(self):
+    with FakeFileManager() as tfm:
+      al = AliasLoad(tfm)
+      result = al.execute(['dooble'], {})
+      self.assertFalse(result.ok)
+      self.assertIn('nothing to save', result.message)

@@ -75,9 +75,26 @@ class RandDiffTest(unittest.TestCase):
       cm = CommandManager(cl)
       cm.initialize_commands()
 
-      with redirect_stdout(f):
+      result = cm.execute(cl.get_cmd('rand_diff'), ['10'])
+
+      self.assertFalse(result.ok)
+      self.assertFalse(result.updates)
+      self.assertNotIn('words', cm.context)
+      self.assertIn('No .txt files found', result.message)
+
+  @patch('random.choice')
+  def test_execute_reports_the_file_it_loaded(self, mock_choice):
+    with FakeFileManager() as tfm:
+      self.make_dict(tfm.td.root, '10', 'one\n')
+      mock_choice.side_effect = lambda seq: tfm.td.tf4.name
+
+      cl = CommandList(tfm)
+      cm = CommandManager(cl)
+      cm.initialize_commands()
+
+      with patch('file_manager.ROOT_DIR', tfm.td.root):
         result = cm.execute(cl.get_cmd('rand_diff'), ['10'])
 
-      self.assertIsNone(result)
-      self.assertNotIn('words', cm.context)
-    self.assertIn('No .txt files found', f.getvalue())
+      # The inner load runs with no front end between it and this command,
+      # so its message has to come back out here.
+      self.assertEqual(result.message, f'Loaded {tfm.td.tf4.name}.')

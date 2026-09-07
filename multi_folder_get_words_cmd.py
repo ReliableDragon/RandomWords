@@ -3,6 +3,7 @@ import logging
 
 from file_command import FileCommand
 from arg import Arg
+from command_result import CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,9 @@ class MultiFolderGetWords(FileCommand):
         folder = self.fm.get_rooted(name)
         txts = self.fm.get_txts(folder)
         if not txts:
-          print(f'No .txt files found under {name}.')
-          return None
+          return CommandResult.fail(f'No .txt files found under {name}.')
         words = self.fm.get_words(random.choice(txts))
       if not words:
-        print(f'No words found for {name}.')
-        return None
+        return CommandResult.fail(f'No words found for {name}.')
       output.append(random.choice(words))
-    print(' '.join(output))
+    return CommandResult(message=' '.join(output), data={'drawn': output})

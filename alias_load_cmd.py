@@ -1,5 +1,8 @@
 from file_command import FileCommand
+from command_result import CommandResult
 from arg import Arg
+
+OVERWRITE_QUESTION = 'Alias exists. Overwrite? y/N'
 
 class AliasLoad(FileCommand):
 
@@ -31,13 +34,18 @@ class AliasLoad(FileCommand):
 
     if not words:
       if len(args_) == 2:
-        print(f'No words found in {args_[1]}; alias not created.')
-      else:
-        print('No words are loaded, so there is nothing to save.')
-      return None
+        return CommandResult.fail(f'No words found in {args_[1]}; alias not created.')
+      return CommandResult.fail('No words are loaded, so there is nothing to save.')
+
+    updates = {alias: words}
+    data = {'pool': alias, 'size': len(words)}
 
     if alias in context:
-      overwrite = input('Alias exists. Overwrite? y/N')
-      if not overwrite or not overwrite.lower().startswith('y'):
-        return {}
-    return {alias: words}
+      # The command does not ask; it says what needs asking and hands back
+      # the answer it would apply. The manager withholds the updates until
+      # a front end brings back a yes, so a terminal can prompt and an HTTP
+      # client can retry with force, and this code never learns which.
+      return CommandResult(updates=updates, data=data,
+                           confirm=OVERWRITE_QUESTION)
+
+    return CommandResult(updates=updates, data=data)

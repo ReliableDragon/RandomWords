@@ -2,6 +2,7 @@ import logging
 import random
 
 from command import Command
+from command_result import CommandResult
 from arg import Arg
 
 logger = logging.getLogger(__name__)
@@ -33,23 +34,20 @@ class GetAliasWords(Command):
         # 'words' is the active pool, not a saved alias.
         choices = [key for key in context.keys() if key != 'words']
         if not choices:
-          print('No aliases are defined yet. Save one with "al <name>".')
-          return None
+          return CommandResult.fail('No aliases are defined yet. Save one with "al <name>".')
         arg = random.choice(choices)
         print_choices = True
       if arg not in context:
-        print(f"Arg {arg} was not found in context! Valid values are {list(context.keys())}.")
-        return None
+        return CommandResult.fail(f"Arg {arg} was not found in context! Valid values are {list(context.keys())}.")
       keys.append(arg)
 
     words = []
     for key in keys:
       if not context[key]:
-        print(f'Alias {key} is empty.')
-        return None
+        return CommandResult.fail(f'Alias {key} is empty.')
       words.append(random.choice(context[key]))
 
     output = ' '.join(words)
     if print_choices:
       output += ' [' + ' '.join(keys) + ']'
-    print(output)
+    return CommandResult(message=output, data={'drawn': words, 'aliases': keys})

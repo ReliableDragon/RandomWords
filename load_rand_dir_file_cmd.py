@@ -1,6 +1,7 @@
 import logging
 
 from file_command import FileCommand
+from command_result import CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +24,11 @@ class LoadRandDirFile(FileCommand):
   def execute(self, args_, context):
     fname = self.fm.rand_dir()
     if fname is None:
-      print(f'No .txt files found under {self.fm.dir}.')
-      return None
+      return CommandResult.fail(f'No .txt files found under {self.fm.dir}.')
     words = self.fm.get_words(fname)
     if not words:
-      return None
-    print(f'Loaded {fname}.')
-    return {'words': words}
+      return CommandResult()
+    return CommandResult(
+      message=f'Loaded {fname}.',
+      updates={'words': words},
+      data={'source': fname, 'size': len(words)})

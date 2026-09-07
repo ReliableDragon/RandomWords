@@ -13,4 +13,5 @@ class QuitTest(unittest.TestCase):
       self.assertFalse(q.matches(line), line)
 
   def test_execute(self):
-    self.assertEqual(Quit().execute([], {}), {'result': 'quit'})
+    result = Quit().execute([], {})
+    self.assertTrue(result.quit)

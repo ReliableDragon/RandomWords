@@ -1,6 +1,7 @@
 import random
 
 from command import Command
+from command_result import CommandResult
 from arg import Arg
 
 class GetWord(Command):
@@ -33,7 +34,7 @@ class GetWord(Command):
   def execute(self, args_, context):
     words = context.get('words')
     if not words:
-      print('No words are loaded. Use load, r or dr first.')
-      return None
+      return CommandResult.fail('No words are loaded. Use load, r or dr first.')
     num = args_[0] if args_ else 1
-    print(' '.join(random.choice(words) for _ in range(num)))
+    drawn = [random.choice(words) for _ in range(num)]
+    return CommandResult(message=' '.join(drawn), data={'drawn': drawn})

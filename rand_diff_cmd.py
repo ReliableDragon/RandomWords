@@ -5,6 +5,7 @@ import file_manager
 
 from arg import Arg
 from command import Command
+from command_result import CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,17 @@ class RandDiff(Command):
     dict_path = os.path.join(file_manager.ROOT_DIR, f'dicts/{to_diff}k_words.txt')
 
     loaded = self.command_list.get_cmd('load_rand_file').execute([], context)
-    if not loaded or not loaded.get('words'):
-      return None
+    if not loaded.ok or not loaded.updates.get('words'):
+      return loaded
 
     # Diff the file that was just loaded, not the pool that preceded it.
-    scratch = context | loaded
-    return self.command_list.get_cmd('diff').execute([dict_path], scratch)
+    scratch = context | loaded.updates
+    result = self.command_list.get_cmd('diff').execute([dict_path], scratch)
+
+    # This command runs two others without a front end between them, so the
+    # inner load's message has nowhere to go unless it is carried out here.
+    messages = [m for m in (loaded.message, result.message) if m]
+    return CommandResult(ok=result.ok,
+                         message='\n'.join(messages),
+                         data=result.data,
+                         updates=result.updates)

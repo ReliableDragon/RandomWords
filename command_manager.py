@@ -1,6 +1,7 @@
 import logging
 
 from command import Command
+from command_result import CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +20,24 @@ class CommandManager():
     for cmd in cmds:
       self.command_list.init_cmd(cmd)
 
-  # Runs a command and merges whatever it returns into the context. A
-  # 'result' key is handed back to the caller instead of being stored.
-  def execute(self, cmd, args_):
-    out_ctx = cmd.execute(args_, self.context)
-    if out_ctx is None:
-      return None
-
-    result = None
-    if 'result' in out_ctx:
-      result = out_ctx.pop('result')
-    self.context |= out_ctx
+  # Runs a command and merges what it produced into the context.
+  #
+  # The merge happens here rather than in each command so that the rule holds
+  # in one place: a command that failed, or that is still waiting for a
+  # confirmation, changes nothing.
+  def execute(self, cmd, args_) -> CommandResult:
+    result = cmd.execute(args_, self.context)
+    if result.ok and not result.confirm:
+      self._merge(result)
     return result
+
+  # Applies updates that were withheld pending a confirmation, once the
+  # front end has its yes.
+  def apply(self, result: CommandResult) -> CommandResult:
+    if result.ok:
+      self._merge(result)
+    return result
+
+  def _merge(self, result: CommandResult):
+    if result.updates:
+      self.context |= result.updates

@@ -1,3 +1,4 @@
+from command_result import CommandResult
 from file_command import FileCommand
 
 class PWD(FileCommand):
@@ -13,5 +14,5 @@ class PWD(FileCommand):
   def execute(self, args_, _):
     super().validate_args(args_)
     pwd = self.fm.pwd()
-    print(pwd)
+    return CommandResult(message=pwd, data={'path': pwd})
 

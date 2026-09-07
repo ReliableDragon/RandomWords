@@ -4,7 +4,7 @@ from command_manager import CommandManager
 from unittest.mock import MagicMock, patch
 
 from command_list import CommandList
-from parser import Parser
+from parser import Parser, unknown_command_result
 from command import Command
 from fake_command import FakeCommand
 from file_manager import FileManager
@@ -85,3 +85,12 @@ class ParserTest(unittest.TestCase):
     cmd, args_ = par.parse('  load a.txt  ')
     self.assertEqual(cmd.name, 'load')
     self.assertEqual(args_, ['a.txt'])
+
+  @patch('builtins.input', lambda *args: 'zzz not a command')
+  def test_get_command_unresolved(self):
+    self.assertEqual(self.par.get_command(), (None, []))
+
+  def test_unknown_command_result(self):
+    result = unknown_command_result()
+    self.assertFalse(result.ok)
+    self.assertEqual(result.message, "I'm sorry, I don't understand.")

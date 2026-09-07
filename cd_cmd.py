@@ -1,6 +1,7 @@
 import os
 
 from arg import Arg
+from command_result import CommandResult
 from file_command import FileCommand
 
 class CD(FileCommand):
@@ -22,5 +23,6 @@ class CD(FileCommand):
     previous = self.fm.dir
     self.fm.cd(path)
     if not os.path.isdir(self.fm.dir):
-      print(f'No such folder: {path}')
       self.fm.dir = previous
+      return CommandResult.fail(f'No such folder: {path}')
+    return CommandResult()

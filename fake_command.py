@@ -1,5 +1,6 @@
 from arg import Arg
 from command import Command
+from command_result import CommandResult
 
 class FakeCommand(Command):
 
@@ -21,7 +22,4 @@ class FakeCommand(Command):
     int_arg = 1
     if len(args_) == 2:
       int_arg = args_[1]
-    return {
-      'result': str_arg * int_arg,
-      'test_key': 24601
-    } 
+    return CommandResult(message=str_arg * int_arg, updates={'test_key': 24601})

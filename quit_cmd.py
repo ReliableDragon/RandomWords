@@ -1,4 +1,5 @@
 from command import Command
+from command_result import CommandResult
 
 class Quit(Command):
 
@@ -17,4 +18,4 @@ class Quit(Command):
     return line.strip().lower() in ['quit', 'exit', 'q']
 
   def execute(self, args_, context):
-    return {'result': 'quit'}
+    return CommandResult(quit=True)

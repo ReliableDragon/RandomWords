@@ -28,7 +28,7 @@ class CommandManagerTest(unittest.TestCase):
     result = cm.execute(test_command, ['abc', 2])
 
     self.assertEqual(cm.context, {'test_key': 24601})
-    self.assertEqual(result, 'abcabc')
+    self.assertEqual(result.message, 'abcabc')
 
 
   def test_execute_err(self):
@@ -51,4 +51,4 @@ class CommandManagerTest(unittest.TestCase):
       result = cm.execute(test_command, ['abc', 2])
 
       self.assertEqual(cm.context, {'test_key': 24601})
-      self.assertEqual(result, 'abcabc')
+      self.assertEqual(result.message, 'abcabc')

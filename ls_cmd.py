@@ -1,6 +1,7 @@
 import os
 
 from arg import Arg
+from command_result import CommandResult
 from file_command import FileCommand
 
 class LS(FileCommand):
@@ -39,12 +40,15 @@ class LS(FileCommand):
         filename = self.fm.get_path(filename)
     results = self.fm.ls(filename)
     if results is None:
-      print(f"File '{filename or self.fm.dir}' not found.")
-      return []
+      return CommandResult.fail(f"File '{filename or self.fm.dir}' not found.")
+    lines = []
+    entries = []
     for path in sorted(results):
       basename = os.path.basename(path)
+      is_dir = os.path.isdir(path)
 
-      if os.path.isdir(path):
-        basename += '/'
+      display = basename + '/' if is_dir else basename
+      lines.append(display)
+      entries.append({'name': basename, 'is_dir': is_dir})
 
-      print(basename)
+    return CommandResult(message='\n'.join(lines), data={'entries': entries})

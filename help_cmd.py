@@ -1,6 +1,7 @@
 import logging
 
 from command import Command
+from command_result import CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +21,12 @@ class Help(Command):
 
   def execute(self, args_, context):
     output = ''
+    lines = []
     for _, cmd in self.command_list.cmds.items():
-      output += cmd.overview()
+      overview = cmd.overview()
+      lines.append(overview)
+      output += overview
       output += '\n'
     # Strip trailing newline
     output = output[:-1]
-    print(output)
+    return CommandResult(message=output, data={'commands': lines})

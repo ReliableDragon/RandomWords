@@ -27,29 +27,29 @@ class IntersectionCommandTest(unittest.TestCase):
     with FakeFileManager() as tfm:
       al = Intersection(tfm)
       result = al.execute(['spenoik', tfm.td.tf1_name], {'spenoik': ['b', 'c', 'd']})
-      self.assertTrue('spenoik' in result)
-      self.assertCountEqual(result['spenoik'], ['b', 'c'])
+      self.assertIn('spenoik', result.updates)
+      self.assertCountEqual(result.updates['spenoik'], ['b', 'c'])
 
   def test_execute_three_arg(self):
     with FakeFileManager() as tfm:
       al = Intersection(tfm)
       result = al.execute(['halmenk', tfm.td.tf1_name, 'dilau'], {'halmenk': ['b', 'c', 'd']})
-      self.assertTrue('dilau' in result)
-      self.assertCountEqual(result['dilau'], ['b', 'c'])
+      self.assertIn('dilau', result.updates)
+      self.assertCountEqual(result.updates['dilau'], ['b', 'c'])
 
   def test_execute_two_aliases(self):
     with FakeFileManager() as tfm:
       al = Intersection(tfm)
       result = al.execute(['bleenu', 'turp', 'blizztu'], {'bleenu': ['1', '2', '3'], 'turp': ['3', '4', '5']})
-      self.assertTrue('blizztu' in result)
-      self.assertCountEqual(result['blizztu'], ['3'])
+      self.assertIn('blizztu', result.updates)
+      self.assertCountEqual(result.updates['blizztu'], ['3'])
 
   def test_execute_two_files_rooting(self):
     with FakeFileManager() as tfm:
       al = Intersection(tfm)
       result = al.execute([tfm.td.tf1_name, tfm.td.tf5.name, 'erbint'], {})
-      self.assertTrue('erbint' in result)
-      self.assertCountEqual(result['erbint'], [])
+      self.assertIn('erbint', result.updates)
+      self.assertCountEqual(result.updates['erbint'], [])
 
   def test_execute_bad_file(self):
     f = io.StringIO()
@@ -58,17 +58,15 @@ class IntersectionCommandTest(unittest.TestCase):
       al = Intersection(tfm)
       context = {'pleebex': ['a', 'b', 'c']}
       result = al.execute(['pleebex', 'bad_file.txt', 'erbint'], context)
-      self.assertIsNone(result)
+      self.assertFalse(result.updates)
       self.assertCountEqual(context['pleebex'], ['a', 'b', 'c'])
       self.assertEqual(f.getvalue(), f'Invalid filename: {tfm.td.root}bad_file.txt\n')
 
   def test_execute_two_args_err(self):
     # With two arguments the result is written back to the first one, so a
     # first argument that is not a saved pool is a user error, not a crash.
-    f = io.StringIO()
-    with (FakeFileManager() as tfm,
-      redirect_stdout(f)):
+    with FakeFileManager() as tfm:
       al = Intersection(tfm)
       result = al.execute([tfm.td.tf5.name, tfm.td.tf1_name], {})
-      self.assertIsNone(result)
-    self.assertIn('is not a saved pool', f.getvalue())
+      self.assertFalse(result.ok)
+    self.assertIn('is not a saved pool', result.message)

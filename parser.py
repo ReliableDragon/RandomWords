@@ -1,6 +1,7 @@
 import logging
 
 from command import Command
+from command_result import CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,15 @@ except ImportError:
 # with the libedit-backed readline shipped on macOS, so history is per-session
 # only.
 
+UNKNOWN_COMMAND = "I'm sorry, I don't understand."
+
+
+# What to show when no command claims a line. It is a CommandResult like any
+# other so that a browser can render it the same way it renders everything
+# else, rather than the parser writing to a terminal nobody may be watching.
+def unknown_command_result() -> CommandResult:
+  return CommandResult.fail(UNKNOWN_COMMAND)
+
 
 class Parser():
 
@@ -24,19 +34,15 @@ class Parser():
     self.cl = command_list
 
 
-  def get_command(self) -> tuple['Command', list[str]]:
-    cmd = None
-    while cmd is None:
-      raw_line = input('> ')
-      cmd, args_ = self.parse(raw_line)
-      if cmd is None:
-        print("I'm sorry, I don't understand.")
-    return cmd, args_
+  # Reads one line and resolves it. A line nothing claims comes back as
+  # (None, []); the caller decides what to say about it.
+  def get_command(self) -> tuple[Command, list[str]]:
+    return self.parse(input('> '))
 
 
   # Finds the first registered command that claims this line. Registration
   # order in CommandList.cmd_list therefore decides precedence.
-  def parse(self, raw_line) -> tuple['Command', list[str]]:
+  def parse(self, raw_line) -> tuple[Command, list[str]]:
     raw_line = raw_line.strip()
     for _, cmd in self.cl.cmds.items():
       if cmd.matches(raw_line):
