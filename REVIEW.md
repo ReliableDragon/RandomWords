@@ -4,6 +4,12 @@ Reviewed at commit `0d2d0f2` on Python 3.13.7 (macOS), then fixed on the
 `review-fixes` branch. Every bug was reproduced by driving the real program
 or the real test suite before the fix, and re-checked the same way after.
 
+> This is a record of one review, kept as history. It describes the code as
+> it stood at that commit, so some of the API it names has since changed:
+> `get_rooted` and the working directory are gone, and paths are now resolved
+> the way [README.md](README.md) describes. See the design proposal for what
+> replaced them.
+
 **Status: all 13 findings addressed.** The suite went from 107 tests with 4
 errors to 142 tests, all passing.
 

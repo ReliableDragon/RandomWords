@@ -11,7 +11,7 @@ class LoadTest(unittest.TestCase):
   def test_execute(self):
     with FakeFileManager() as tfm:
       load = Load(tfm)
-      result = load.execute([tfm.td.tf1.name], {})
+      result = load.execute([tfm.td.tf1_path], {})
 
       self.assertTrue('words' in result.updates)
       self.assertCountEqual(result.updates['words'], ['a', 'b', 'c'])
@@ -51,11 +51,10 @@ class LoadTest(unittest.TestCase):
     with FakeFileManager() as tfm:
       load = Load(tfm)
       result = load.execute(['nope.txt'], {})
-      expected_path = tfm.get_rooted('nope.txt')
     self.assertFalse(result.ok)
     self.assertEqual(
         result.message,
-        f'Invalid filename: {expected_path}\n'
+        'Invalid filename: nope.txt\n'
         'No words found in nope.txt; keeping the current pool.')
 
   def test_execute_unknown_alias_keeps_pool(self):

@@ -25,6 +25,6 @@ class LoadRandFileTest(unittest.TestCase):
       os.mkdir(empty)
       lrf = LoadRandFile(tfm)
 
-      result = lrf.execute([empty], None)
+      result = lrf.execute([tfm.td.rel(empty)], None)
       self.assertFalse(result.ok)
     self.assertIn('No .txt files found', result.message)

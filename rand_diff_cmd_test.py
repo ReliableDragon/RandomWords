@@ -1,13 +1,12 @@
-import io
 import os
 import unittest
 
-from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from command_list import CommandList
 from command_manager import CommandManager
 from fake_file_manager import FakeFileManager
+from file_manager import FileManager
 
 
 class RandDiffTest(unittest.TestCase):
@@ -23,7 +22,7 @@ class RandDiffTest(unittest.TestCase):
     with FakeFileManager() as tfm:
       # tf4 holds 'one two three' plus digits; the dictionary holds two of them.
       self.make_dict(tfm.td.root, '10', 'one\ntwo\n')
-      mock_choice.side_effect = lambda seq: tfm.td.tf4.name
+      mock_choice.side_effect = lambda seq: tfm.td.tf4_path
 
       cl = CommandList(tfm)
       # A stale pool: the old implementation diffed this instead of the
@@ -31,9 +30,7 @@ class RandDiffTest(unittest.TestCase):
       cm = CommandManager(cl, context={'words': ['stale']})
       cm.initialize_commands()
 
-      with (redirect_stdout(io.StringIO()),
-        patch('file_manager.ROOT_DIR', tfm.td.root)):
-        cm.execute(cl.get_cmd('rand_diff'), ['10'])
+      cm.execute(cl.get_cmd('rand_diff'), ['10'])
 
       self.assertEqual(cm.context['words'], ['three'])
 
@@ -41,15 +38,13 @@ class RandDiffTest(unittest.TestCase):
   def test_execute_default_dictionary(self, mock_choice):
     with FakeFileManager() as tfm:
       self.make_dict(tfm.td.root, '70', 'one\n')
-      mock_choice.side_effect = lambda seq: tfm.td.tf4.name
+      mock_choice.side_effect = lambda seq: tfm.td.tf4_path
 
       cl = CommandList(tfm)
       cm = CommandManager(cl)
       cm.initialize_commands()
 
-      with (redirect_stdout(io.StringIO()),
-        patch('file_manager.ROOT_DIR', tfm.td.root)):
-        cm.execute(cl.get_cmd('rand_diff'), [])
+      cm.execute(cl.get_cmd('rand_diff'), [])
 
       self.assertCountEqual(cm.context['words'], ['two', 'three'])
 
@@ -63,14 +58,13 @@ class RandDiffTest(unittest.TestCase):
     self.assertTrue(rd.matches('rand_diff 450'))
     self.assertFalse(rd.matches('rd 42'))
 
-  @patch('random.choice')
-  def test_execute_no_files(self, mock_choice):
+  def test_execute_no_files(self):
     with FakeFileManager() as tfm:
       empty = os.path.join(tfm.td.root, 'empty')
       os.mkdir(empty)
-      tfm.dir = empty + '/'
+      fm = FileManager(empty)
 
-      cl = CommandList(tfm)
+      cl = CommandList(fm)
       cm = CommandManager(cl)
       cm.initialize_commands()
 
@@ -85,15 +79,14 @@ class RandDiffTest(unittest.TestCase):
   def test_execute_reports_the_file_it_loaded(self, mock_choice):
     with FakeFileManager() as tfm:
       self.make_dict(tfm.td.root, '10', 'one\n')
-      mock_choice.side_effect = lambda seq: tfm.td.tf4.name
+      mock_choice.side_effect = lambda seq: tfm.td.tf4_path
 
       cl = CommandList(tfm)
       cm = CommandManager(cl)
       cm.initialize_commands()
 
-      with patch('file_manager.ROOT_DIR', tfm.td.root):
-        result = cm.execute(cl.get_cmd('rand_diff'), ['10'])
+      result = cm.execute(cl.get_cmd('rand_diff'), ['10'])
 
       # The inner load runs with no front end between it and this command,
       # so its message has to come back out here.
-      self.assertEqual(result.message, f'Loaded {tfm.td.tf4.name}.')
+      self.assertEqual(result.message, f'Loaded {tfm.td.tf4_path}.')

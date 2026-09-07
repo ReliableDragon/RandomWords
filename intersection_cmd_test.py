@@ -45,7 +45,7 @@ class IntersectionCommandTest(unittest.TestCase):
   def test_execute_two_files_rooting(self):
     with FakeFileManager() as tfm:
       al = Intersection(tfm)
-      result = al.execute([tfm.td.tf1_name, tfm.td.tf5.name, 'erbint'], {})
+      result = al.execute([tfm.td.tf1_name, tfm.td.tf5_path, 'erbint'], {})
       self.assertIn('erbint', result.updates)
       self.assertCountEqual(result.updates['erbint'], [])
 
@@ -57,13 +57,13 @@ class IntersectionCommandTest(unittest.TestCase):
       self.assertFalse(result.updates)
       self.assertCountEqual(context['pleebex'], ['a', 'b', 'c'])
       self.assertFalse(result.ok)
-      self.assertEqual(result.message, f'Invalid filename: {tfm.td.root}bad_file.txt')
+      self.assertEqual(result.message, 'Invalid filename: bad_file.txt')
 
   def test_execute_two_args_err(self):
     # With two arguments the result is written back to the first one, so a
     # first argument that is not a saved pool is a user error, not a crash.
     with FakeFileManager() as tfm:
       al = Intersection(tfm)
-      result = al.execute([tfm.td.tf5.name, tfm.td.tf1_name], {})
+      result = al.execute([tfm.td.tf5_path, tfm.td.tf1_name], {})
       self.assertFalse(result.ok)
     self.assertIn('is not a saved pool', result.message)

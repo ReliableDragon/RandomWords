@@ -56,19 +56,18 @@ python3 book_word.py sources/dicts/10k_words.txt
 A typical session:
 
 ```
-> cd classics
-> ls
+> ls classics
 20k_leagues.txt
 HoD.txt
 analects.txt
 ...
-> load moby_dick.txt
+> load classics/moby_dick.txt
 > word
 harpooneer
 > 3
 leviathan gale mizzen
-> al moby                                    # save the pool as "moby"
-> d moby sources/dicts/10k_words.txt rare    # drop the 10k commonest words
+> al moby                            # save the pool as "moby"
+> d moby dicts/10k_words.txt rare    # drop the 10k commonest words
 > gaw rare
 ambergris
 > quit
@@ -96,6 +95,14 @@ a name to a list of words.
 A command that fails leaves the context untouched, so a typo never destroys
 the pool you are working with.
 
+### Paths, and the absence of a current directory
+
+There is no `cd`. Every path you type is relative to the `sources/` root and
+means the same thing wherever you are in a session, so `classics/moby_dick.txt`
+is that book from anywhere. A path that tries to leave the library, whether by
+starting with `/` or by climbing with `..`, is refused rather than resolved.
+`ls` is how you look around.
+
 ### How commands work
 
 Each command is a class with a `matches(line)` method that decides whether a
@@ -120,9 +127,7 @@ Arguments in `<angle brackets>` are required, `[square brackets]` optional.
 |---|---|
 | `help` | List every command with a one-line summary. |
 | `quit`, `exit`, `q` | Leave the program. |
-| `pwd` | Print the current directory (an absolute path under `sources/`). |
-| `ls [folder]` | List sub-folders and `.txt` files in the current directory, or in `folder`. Folders are shown with a trailing `/`. Hidden folders are skipped. The argument must be a single folder name, taken relative to the current directory. |
-| `cd <folder>` | Change directory. `..` moves up one level, `/` jumps back to `sources/`, and an absolute path is used as-is. Relative paths are normalised and cannot climb above `sources/`. A folder that does not exist is reported and the current directory is left alone. |
+| `ls [folder]` | List sub-folders and `.txt` files in `folder`, or in the library root. Folders are shown with a trailing `/`, and hidden folders are skipped. The argument is a library path, so `ls myth` and `ls classics` both work. |
 
 ### Loading a pool
 
@@ -131,8 +136,8 @@ Arguments in `<angle brackets>` are required, `[square brackets]` optional.
 | `load <file>` | Read `file` and make its words the active pool. |
 | `load <alias>` | Copy an alias into the active pool. |
 | `<file>.txt` | Shorthand for `load <file>.txt`: typing a path that ends in `.txt` loads it. |
-| `r [folder]`, `rand`, `random` | Load a random `.txt` from anywhere under the current directory (or under `folder`). Every file is equally likely, regardless of how deep it is or how many siblings it has. Prints which file was chosen. |
-| `dr`, `drand`, `dir_random` | Load a random `.txt` by walking down from the current directory, choosing uniformly among the entries at each level. A folder with two files is as likely to be chosen as a folder with twenty, which is useful when the collections are very uneven in size. Folders that contain no texts are skipped. |
+| `r [folder]`, `rand`, `random` | Load a random `.txt` from anywhere under `folder`, or under the whole library. Every file is equally likely, regardless of how deep it is or how many siblings it has. Prints which file was chosen. |
+| `dr`, `drand`, `dir_random` | Load a random `.txt` by walking down from the library root, choosing uniformly among the entries at each level. A folder with two files is as likely to be chosen as a folder with twenty, which is useful when the collections are very uneven in size. Folders that contain no texts are skipped. |
 
 ### Getting words
 
@@ -167,23 +172,32 @@ you give:
 | `d A B C` | `A ∘ B` | `C` (new or overwritten alias) |
 
 For `diff` the order matters: `d A B` keeps the words of `A` that are not in
-`B`. So `d moby sources/dicts/10k_words.txt rare` gives you the words of
+`B`. So `d moby dicts/10k_words.txt rare` gives you the words of
 *Moby Dick* minus the 10,000 most common English words, saved as `rare`.
 
 ## Path rules
 
-Every file and folder argument goes through the same resolution
-(`FileManager.get_rooted`):
+Every file and folder argument is a **library path**: relative to `sources/`,
+with `/` between segments. `dicts/10k_words.txt` is that dictionary,
+`classics` is that folder, and an empty argument means the library root.
 
-| You type | Resolves to |
+There is deliberately no way to name anything outside the library. Each of
+these is refused with `Not a path in the library`:
+
+| You type | Why it is refused |
 |---|---|
-| `/` | The `sources/` root. |
-| `/abs/path/...` | Used unchanged as an absolute filesystem path. Note that `/dicts/x.txt` is **not** "dicts under sources"; it is a path at the filesystem root. |
-| `sources/dicts/x.txt` | The `sources/` prefix is recognised and the rest is taken relative to the sources root, wherever you currently are. This is the way to reach a file in another folder without `cd`. |
-| `dicts/x.txt` (anything else) | Relative to the current directory. |
+| `/etc/passwd` | Absolute paths are not library paths. |
+| `../../etc/passwd` | A `..` segment cannot appear in a library path. |
+| `myth/../../etc` | Rejected before the path is normalised, not after. |
+| a symlink pointing out of `sources/` | Checked after resolution, because a symlink is not a string. |
 
-Filenames must match `[A-Za-z0-9_/]` plus the `.txt` extension: no spaces, no
-hyphens, no other dots. All files in `sources/` follow this rule.
+The check lives in one function, `FileManager.resolve`, which every path
+passes through. It has no branch that returns a path outside its root, which
+is what lets commands hand it whatever the user typed.
+
+Filenames themselves are restricted to letters, digits, underscores and `/`,
+plus the `.txt` extension: no spaces, no hyphens, no other dots. All files in
+`sources/` follow this rule.
 
 ## How words are extracted
 
@@ -228,7 +242,8 @@ Everything is in the repository root; there is no package structure.
 | File | Role |
 |---|---|
 | `book_word.py` | Entry point. Builds the objects below, loads the startup dictionary, and runs the read-eval-print loop in `RandomWords.run`. The loop catches errors so a bad command cannot end the session. |
-| `file_manager.py` | `FileManager`: all filesystem access. Tracks the current directory, resolves paths (`get_rooted`), lists and walks folders (`ls`, `get_txts`, `rand_file`, `rand_dir`), and extracts words (`get_words`, `remove_gutenberg`). `ROOT_DIR` is the absolute `sources/` path, derived from this file's own location. |
+| `file_manager.py` | `FileManager`: all filesystem access, and stateless. Resolves library paths (`resolve`, `relative`), lists and walks folders (`ls`, `get_txts`, `rand_file`, `rand_dir`), and extracts words (`get_words`, `remove_gutenberg`). Raises `InvalidPath` for anything outside its root and `UnreadableSource` for a file it cannot read. `ROOT_DIR` is the absolute `sources/` path, derived from this file's own location. |
+| `command_result.py` | `CommandResult`: what every command returns. Carries `ok`, `message`, `data`, `updates`, `confirm` and `quit`. Commands never print, so the same command can serve a terminal or an HTTP request. |
 | `command.py` | `Command` base class: `cmd_name()`, `cmd_args()`, `matches(line)`, `parse_args(line)`, `execute(args, context)`, `overview()`. The default `matches` builds a regex from the name and argument list; most commands override it to add short aliases. |
 | `file_command.py` | `FileCommand`: a `Command` that holds a `FileManager`. |
 | `set_op_cmd.py` | `SetOpCommand`: shared argument handling for `combine`, `diff`, and `intersection`; subclasses supply `aliases()` and `set_operation(s1, s2)`. |
@@ -236,15 +251,13 @@ Everything is in the repository root; there is no package structure.
 | `*_cmd.py` | One file per command (see the table below). |
 | `command_list.py` | `CommandList`: constructs every command instance (`cmd_list`) and holds the name → command registry. Registration order is the order the parser tries matches in. |
 | `command_manager.py` | `CommandManager`: owns the context. `execute` runs a command, pops a `result` key from what it returns, and merges the rest into the context. |
-| `parser.py` | `Parser`: reads a line from the user and finds the first command whose `matches` accepts it. Importing it enables `readline` line editing where available. |
+| `parser.py` | `Parser`: reads a line and finds the first command whose `matches` accepts it. A line nothing claims comes back as `(None, [])`, and the caller turns that into a result. Importing it enables `readline` line editing where available. |
 
 Command classes:
 
 | File | Class | Command |
 |---|---|---|
 | `ls_cmd.py` | `LS` | `ls` |
-| `cd_cmd.py` | `CD` | `cd` |
-| `pwd_cmd.py` | `PWD` | `pwd` |
 | `load_cmd.py` | `Load` | `load`, bare `*.txt` |
 | `get_word_cmd.py` | `GetWord` | `word`, `next`, empty line, number |
 | `load_rand_file_cmd.py` | `LoadRandFile` | `r` |
@@ -265,12 +278,17 @@ Command classes:
    `parse_args` splits the line into arguments.
 2. `CommandManager.execute` calls `command.execute(args, context)`.
 3. The command reads whatever it needs from the context and the
-   `FileManager`, prints its output, and returns either `None` (nothing to
-   store, which is also how a command reports a user error) or a dict of
-   `{name: word_list}`.
-4. The manager merges that dict into the context. If it contains a `result`
-   key, that value is returned to the main loop instead of being stored; the
-   loop exits when the result is the string `'quit'`.
+   `FileManager` and returns a `CommandResult`. It never prints. `message`
+   is the line to show, `ok` is false for a user error, `updates` are the
+   context entries to store, `data` is a structured payload for an API,
+   `confirm` is a question that must be answered before the updates apply,
+   and `quit` ends the session.
+4. The manager merges `updates` into the context, but only when the command
+   succeeded and set no `confirm`, so a failed command cannot change the
+   session. It hands the result back.
+5. The front end decides what to do with it. The terminal prints `message`,
+   asks `confirm` and calls `CommandManager.apply` on a yes, and stops on
+   `quit`. An HTTP handler would serialise `message` and `data` instead.
 
 ### Adding a command
 
@@ -278,10 +296,13 @@ Command classes:
    it needs the filesystem). Implement `cmd_name`, `cmd_args`, and `execute`;
    override `matches` and `parse_args` if you want aliases or a non-standard
    syntax, and `overview` for a friendlier `help` line.
-2. Add an instance to the list in `CommandList.cmd_list`. Put it **before**
+2. Return a `CommandResult` from `execute`, never a bare dict and never
+   `None`. Use `CommandResult.fail(message)` for a user error.
+3. Add an instance to the list in `CommandList.cmd_list`. Put it **before**
    any command whose pattern could also match your syntax.
-3. Add `my_cmd_test.py` next to it, and add the new syntax to the
-   precedence table in `parser_test.test_parse_every_documented_syntax`.
+4. Add `my_cmd_test.py` next to it, and add the new syntax to the
+   precedence table in `parser_test.test_parse_every_documented_syntax`. If
+   it takes a path, add it to the table in `path_safety_test.py` too.
 
 ## Running the tests
 
@@ -298,22 +319,28 @@ python3 -m unittest discover -p '*_test.py'
 The pattern is required because the tests are named `*_test.py`, which the
 default discovery pattern (`test*.py`) does not match.
 
-There are 142 tests and they all pass. Files named `fake_*.py`
+There are 149 tests and they all pass. Files named `fake_*.py`
 (`fake_command.py`, `fake_directories.py`, `fake_file_manager.py`) are test
 doubles, not test cases. Tests that touch the filesystem build a temporary
 directory tree through `FakeDirectories` / `FakeFileManager` rather than
 mocking, so they need a writable temp dir. Tests that involve randomness
 patch `random.choice` with a deterministic function.
 
+`path_safety_test.py` is the one to keep an eye on. It drives every command
+that takes a path, through the real parser and command manager, with every
+spelling of a path that tries to leave the library, and asserts each is
+refused and that the session is unchanged.
+
 ## Known limitations
 
 - Filenames are restricted to letters, digits, underscores, and `/`. A file
   with a space or a hyphen in its name cannot be typed as an argument.
-- `ls` takes a single folder name, not a path.
-- An absolute path escapes the `sources/` root by design, so `cd /tmp` works
-  and `pwd` will report it.
+- There is no way to read a text outside `sources/`. That was possible when
+  the tool had a working directory, and is not now. If you want it back, the
+  intended shape is a second root given at startup rather than a path that
+  escapes the first one.
 - Words are re-extracted from disk on every command that reads a file; the
-  450k dictionary takes about a third of a second each time. There is no
+  450k dictionary takes about a quarter of a second each time. There is no
   cache.
 - `Command.validate_args` can only ever check `str` arguments, because
   `parse_args` yields strings for every command except `get_word`.

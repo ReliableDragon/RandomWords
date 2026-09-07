@@ -5,7 +5,7 @@ from command_list import CommandList
 from command_manager import CommandManager
 from parser import Parser, unknown_command_result
 
-DEFAULT_WORDS = 'sources/dicts/70k_words.txt'
+DEFAULT_WORDS = 'dicts/70k_words.txt'
 
 
 class RandomWords():

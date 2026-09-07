@@ -21,7 +21,7 @@ class MultiFolderGetWordsTest(unittest.TestCase):
     mock_choice.side_effect = lambda a: sorted(a)[0]
     with FakeFileManager() as tfm:
       mfgw = MultiFolderGetWords(tfm)
-      args_ = [tfm.td.d3.name, tfm.td.d4.name]
+      args_ = [tfm.td.d3_path, tfm.td.d4_path]
       result = mfgw.execute(args_, {})
     self.assertEqual(result.message, 'aeschylinux five')
 
@@ -30,7 +30,7 @@ class MultiFolderGetWordsTest(unittest.TestCase):
     mock_choice.side_effect = lambda a: sorted(a)[0]
     with FakeFileManager() as tfm:
       mfgw = MultiFolderGetWords(tfm)
-      args_ = ['thlong', tfm.td.d4.name]
+      args_ = ['thlong', tfm.td.d4_path]
       result = mfgw.execute(args_, {'thlong': ['neeble']})
     self.assertEqual(result.message, 'neeble five')
 
@@ -39,7 +39,7 @@ class MultiFolderGetWordsTest(unittest.TestCase):
     mock_choice.side_effect = lambda a: sorted(a)[0]
     with FakeFileManager() as tfm:
       mfgw = MultiFolderGetWords(tfm)
-      args_ = [tfm.td.tf1.name, tfm.td.d4.name]
+      args_ = [tfm.td.tf1_path, tfm.td.d4_path]
       result = mfgw.execute(args_, {})
     self.assertEqual(result.message, 'a five')
 
@@ -47,9 +47,9 @@ class MultiFolderGetWordsTest(unittest.TestCase):
   def test_execute_with_rel_dirs(self, mock_choice):
     mock_choice.side_effect = lambda a: sorted(a)[0]
     with FakeFileManager() as tfm:
-      tfm.dir = tfm.td.d2.name
+      td = tfm.td
       mfgw = MultiFolderGetWords(tfm)
-      args_ = [tfm.td.d3_name, tfm.td.d4_name]
+      args_ = [os.path.join(td.d2_path, td.d3_name), os.path.join(td.d2_path, td.d4_name)]
       result = mfgw.execute(args_, {})
     self.assertEqual(result.message, 'aeschylinux five')
 
@@ -59,6 +59,6 @@ class MultiFolderGetWordsTest(unittest.TestCase):
       os.mkdir(empty)
       mfgw = MultiFolderGetWords(tfm)
 
-      result = mfgw.execute([empty], {})
+      result = mfgw.execute([tfm.td.rel(empty)], {})
       self.assertFalse(result.ok)
     self.assertIn('No .txt files found', result.message)

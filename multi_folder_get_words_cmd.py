@@ -34,8 +34,7 @@ class MultiFolderGetWords(FileCommand):
         elif name in context:
           words = context[name]
         else:
-          folder = self.fm.get_rooted(name)
-          txts = self.fm.get_txts(folder)
+          txts = self.fm.get_txts(name)
           if not txts:
             return CommandResult.fail(f'No .txt files found under {name}.')
           words = self.fm.get_words(random.choice(txts))

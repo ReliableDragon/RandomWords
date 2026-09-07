@@ -24,7 +24,7 @@ class RandomWordsTest(unittest.TestCase):
       rw, _, cm = self.build(tfm)
       with (patch('builtins.input', side_effect=['quit']),
         redirect_stdout(io.StringIO())):
-        rw.run(tfm.td.tf1.name)
+        rw.run(tfm.td.tf1_path)
       self.assertCountEqual(cm.context['words'], ['a', 'b', 'c'])
 
   def test_run_exits_on_eof(self):
@@ -32,24 +32,24 @@ class RandomWordsTest(unittest.TestCase):
       rw, _, _ = self.build(tfm)
       with (patch('builtins.input', side_effect=EOFError),
         redirect_stdout(io.StringIO())):
-        rw.run(tfm.td.tf1.name)
+        rw.run(tfm.td.tf1_path)
 
   def test_run_exits_on_interrupt(self):
     with FakeFileManager() as tfm:
       rw, _, _ = self.build(tfm)
       with (patch('builtins.input', side_effect=KeyboardInterrupt),
         redirect_stdout(io.StringIO())):
-        rw.run(tfm.td.tf1.name)
+        rw.run(tfm.td.tf1_path)
 
   def test_run_survives_a_failing_command(self):
     f = io.StringIO()
     with FakeFileManager() as tfm:
       rw, cl, _ = self.build(tfm)
-      pwd = cl.get_cmd('pwd')
-      with (patch.object(pwd, 'execute', side_effect=RuntimeError('boom')),
-        patch('builtins.input', side_effect=['pwd', 'quit']),
+      victim = cl.get_cmd('help')
+      with (patch.object(victim, 'execute', side_effect=RuntimeError('boom')),
+        patch('builtins.input', side_effect=['help', 'quit']),
         redirect_stdout(f)):
-        rw.run(tfm.td.tf1.name)
+        rw.run(tfm.td.tf1_path)
     self.assertIn('Error: boom', f.getvalue())
 
   def test_run_survives_a_missing_startup_file(self):
@@ -68,5 +68,5 @@ class RandomWordsTest(unittest.TestCase):
       rw, _, _ = self.build(tfm)
       with (patch('builtins.input', side_effect=['zzz nonsense', 'quit']),
         redirect_stdout(f)):
-        rw.run(tfm.td.tf1.name)
+        rw.run(tfm.td.tf1_path)
     self.assertIn("I'm sorry, I don't understand.", f.getvalue())

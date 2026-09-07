@@ -46,7 +46,7 @@ class DiffCommandTest(unittest.TestCase):
   def test_execute_two_files_rooting(self):
     with FakeFileManager() as tfm:
       al = Diff(tfm)
-      result = al.execute([tfm.td.tf1_name, tfm.td.tf5.name, 'erbint'], {})
+      result = al.execute([tfm.td.tf1_name, tfm.td.tf5_path, 'erbint'], {})
       self.assertIn('erbint', result.updates)
       self.assertCountEqual(result.updates['erbint'], ['a', 'b', 'c'])
 
@@ -55,7 +55,7 @@ class DiffCommandTest(unittest.TestCase):
     # first argument that is not a saved pool is a user error, not a crash.
     with FakeFileManager() as tfm:
       al = Diff(tfm)
-      result = al.execute([tfm.td.tf5.name, tfm.td.tf1_name], {})
+      result = al.execute([tfm.td.tf5_path, tfm.td.tf1_name], {})
       self.assertFalse(result.ok)
     self.assertIn('is not a saved pool', result.message)
 

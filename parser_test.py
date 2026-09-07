@@ -53,8 +53,7 @@ class ParserTest(unittest.TestCase):
     par = Parser(cl)
 
     cases = [
-      ('ls', 'ls'), ('ls myth', 'ls'),
-      ('cd myth', 'cd'), ('pwd', 'pwd'),
+      ('ls', 'ls'), ('ls myth', 'ls'), ('ls myth/greek', 'ls'),
       ('load a.txt', 'load'), ('load alias', 'load'),
       ('a/b.txt', 'load'), ('LOAD a.txt', 'load'),
       ('', 'get_word'), ('word', 'get_word'), ('next', 'get_word'),

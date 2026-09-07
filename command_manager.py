@@ -2,6 +2,7 @@ import logging
 
 from command import Command
 from command_result import CommandResult
+from file_manager import InvalidPath, UnreadableSource
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,12 @@ class CommandManager():
   # in one place: a command that failed, or that is still waiting for a
   # confirmation, changes nothing.
   def execute(self, cmd, args_) -> CommandResult:
-    result = cmd.execute(args_, self.context)
+    try:
+      result = cmd.execute(args_, self.context)
+    except (InvalidPath, UnreadableSource) as e:
+      # A path the library refuses is a user error with one wording, not a
+      # crash, and not something every command should have to guard.
+      return CommandResult.fail(str(e))
     if result.ok and not result.confirm:
       self._merge(result)
     return result

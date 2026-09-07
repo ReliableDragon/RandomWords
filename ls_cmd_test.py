@@ -21,7 +21,7 @@ class TestLS(unittest.TestCase):
     with FakeDirectories() as td:
       fm = FileManager(td.root)
       ls = LS(fm)
-      result = ls.execute([td.root], None)
+      result = ls.execute([''], None)
 
       self.assertCountEqual(get_files(result.message), [td.d2_name, td.tf1_name])
 
@@ -35,9 +35,9 @@ class TestLS(unittest.TestCase):
 
   def test_execute_with_arg_diff_dir(self):
     with FakeDirectories() as td:
-      fm = FileManager(td.d4.name)
+      fm = FileManager(td.root)
       ls = LS(fm)
-      result = ls.execute([td.d3.name], None)
+      result = ls.execute([td.d3_path], None)
 
       self.assertCountEqual(get_files(result.message), [td.tf3_name, td.tf4_name])
 
@@ -48,11 +48,11 @@ class TestLS(unittest.TestCase):
       result = ls.execute(['shmooble/'], {})
 
     self.assertFalse(result.ok)
-    self.assertEqual(result.message, f"File '{fm.dir}shmooble/' not found.")
+    self.assertEqual(result.message, "Folder 'shmooble/' not found.")
 
   def test_execute_missing_current_dir_names_it(self):
     fm = FileManager('/no/such/place/')
     result = LS(fm).execute([], None)
 
     self.assertFalse(result.ok)
-    self.assertEqual(result.message, "File '/no/such/place/' not found.")
+    self.assertEqual(result.message, "Folder '/' not found.")

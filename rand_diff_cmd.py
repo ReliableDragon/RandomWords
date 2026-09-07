@@ -1,7 +1,4 @@
 import logging
-import os
-
-import file_manager
 
 from arg import Arg
 from command import Command
@@ -35,7 +32,7 @@ class RandDiff(Command):
   def execute(self, args_, context):
     super().validate_args(args_)
     to_diff = args_[0] if args_ else '70'
-    dict_path = os.path.join(file_manager.ROOT_DIR, f'dicts/{to_diff}k_words.txt')
+    dict_path = f'dicts/{to_diff}k_words.txt'
 
     loaded = self.command_list.get_cmd('load_rand_file').execute([], context)
     if not loaded.ok or not loaded.updates.get('words'):

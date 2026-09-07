@@ -30,7 +30,10 @@ class Load(FileCommand):
 
   def execute(self, args_, context):
     source = args_[0]
-    if source.endswith('.txt'):
+    # Anything with a slash is meant as a path, even without the extension.
+    # Treating it as an alias name instead produced a baffling error for
+    # something like `load /etc/passwd`.
+    if source.endswith('.txt') or '/' in source:
       try:
         words = self.fm.get_words(source)
       except UnreadableSource as e:

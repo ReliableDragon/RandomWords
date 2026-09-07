@@ -9,11 +9,7 @@ logger = logging.getLogger(__name__)
 # The sources directory is located relative to this file rather than to the
 # current working directory, so the program can be started from anywhere.
 _HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.join(_HERE, 'sources') + '/'
-
-# A path typed with this prefix is interpreted as relative to the sources
-# root instead of to the current directory.
-SOURCES_PREFIX = 'sources/'
+ROOT_DIR = os.path.join(_HERE, 'sources')
 
 # A word is a run of letters/digits, optionally joined by internal
 # apostrophes or hyphens ("well-known", "ain't"). '[^\W_]' is Unicode-aware,
@@ -25,66 +21,63 @@ GUTENBERG_HEADER = '*** START OF THE PROJECT GUTENBERG EBOOK'
 GUTENBERG_FOOTER = '*** END OF THE PROJECT GUTENBERG EBOOK'
 
 
+class InvalidPath(Exception):
+  """A path that does not name something inside the library.
+
+  The message is user-facing."""
+
+
 class UnreadableSource(Exception):
   """A text that could not be read. The message is user-facing."""
 
 
 class FileManager():
 
-  # dir_: str The absolute path to the source directory.
-  def __init__(self, dir_ = ROOT_DIR):
-    if not dir_:
-      dir_ = os.path.abspath('.')
-    if dir_[-1] != '/':
-      dir_ += '/'
-    self.dir = dir_
+  # Every path in and out of this class is relative to `root`, and `root` is
+  # set once. There is no working directory, so there is no per-session
+  # filesystem state for concurrent callers to race over, and no path that
+  # means somewhere else.
+  #
+  # root: the one directory this manager can see.
+  def __init__(self, root = ROOT_DIR):
+    self.root = os.path.realpath(root or '.')
 
   ###
   ### PATH METHODS
   ###
 
-  def pwd(self):
-    return self.dir
-
-
-  def get_path(self, filename):
-    return os.path.join(self.dir, filename)
-
-  # Resolves a user-supplied path.
+  # Turns a library path into an absolute one.
   #
-  # '/' means the sources root, a leading '/' means an absolute filesystem
-  # path, a leading 'sources/' means a path below the sources root, and
-  # anything else is relative to the current directory.
-  def get_rooted(self, filename):
-    if filename == '/':
-      return ROOT_DIR
-    if filename.startswith('/'):
-      return filename
-    if filename.startswith(SOURCES_PREFIX):
-      return os.path.join(ROOT_DIR, filename.removeprefix(SOURCES_PREFIX))
-    return os.path.join(self.dir, filename)
-
-  # Changes the current directory.
-  #
-  # path: A path relative to the current directory ('..' included), or an
-  # absolute path, or '/' to return to the sources root. Relative navigation
-  # is normalised and cannot escape above the sources root.
-  def cd(self, path: str) -> None:
-    if path == '/':
-      self.dir = ROOT_DIR
-      return
-
+  # There is deliberately no branch that returns a path outside the root. An
+  # absolute path, a '..' segment, or a symlink pointing out of the tree is
+  # refused rather than resolved, which is why callers can pass user input
+  # here without sanitising it first.
+  def resolve(self, path: str) -> str:
     if path.startswith('/'):
-      self.dir = path if path.endswith('/') else path + '/'
-      return
+      raise InvalidPath(f'Not a path in the library: {path}')
 
-    # Only clamp when we started inside the sources tree; the FileManager is
-    # also pointed at arbitrary roots (notably by the tests).
-    inside_root = self.dir.startswith(ROOT_DIR)
-    new_dir = os.path.normpath(os.path.join(self.dir, path)) + '/'
-    if inside_root and not new_dir.startswith(ROOT_DIR):
-      new_dir = ROOT_DIR
-    self.dir = new_dir
+    parts = [p for p in path.split('/') if p not in ('', '.')]
+    if '..' in parts:
+      raise InvalidPath(f'Not a path in the library: {path}')
+
+    full = os.path.realpath(os.path.join(self.root, *parts))
+    # A symlink is not a string, so the string checks above are not enough.
+    if full != self.root and not full.startswith(self.root + os.sep):
+      raise InvalidPath(f'Not a path in the library: {path}')
+    return full
+
+
+  # The library path for an absolute one. '' names the root itself.
+  def relative(self, full: str) -> str:
+    rel = os.path.relpath(os.path.realpath(full), self.root)
+    return '' if rel == '.' else rel
+
+
+  def is_dir(self, path: str) -> bool:
+    try:
+      return os.path.isdir(self.resolve(path))
+    except InvalidPath:
+      return False
 
   ###
   ### LIST METHODS
@@ -114,19 +107,19 @@ class FileManager():
 
   # Gets all of the words present in a file.
   #
-  # filename: The file to read, resolved by get_rooted.
+  # path: A library path to the file to read.
   # Returns: The distinct lower-cased words in the file.
-  # Raises: UnreadableSource if the file could not be read.
-  def get_words(self, filename) -> list[str]:
-    filename = self.get_rooted(filename)
+  # Raises: InvalidPath, or UnreadableSource if the file cannot be read.
+  def get_words(self, path: str) -> list[str]:
+    full = self.resolve(path)
 
     try:
-      with open(filename, encoding='utf-8', errors='replace') as f:
+      with open(full, encoding='utf-8', errors='replace') as f:
         txt = f.read()
     except OSError:
       # `from None`: this replaces the OSError rather than being an accident
       # while handling it, so a stray traceback shows one exception, not two.
-      raise UnreadableSource(f'Invalid filename: {filename}') from None
+      raise UnreadableSource(f'Invalid filename: {path}') from None
 
     txt = self.remove_gutenberg(txt)
     tokens = WORD_RE.findall(txt)
@@ -135,64 +128,53 @@ class FileManager():
     return sorted({t.lower() for t in tokens if any(c.isalpha() for c in t)})
 
 
-  # Gets the contents of the directory passed in, or the current directory
-  # if none is provided.
+  # Lists a folder, or the library root when no path is given.
   #
-  # Returns: String filepaths for all non-hidden folders and .txt files
-  # found, or None if the directory could not be read.
-  def ls(self, dir_ = None) -> list[str] | None:
-    if dir_ is None:
-      dir_ = self.dir
+  # Returns: Library paths for the non-hidden folders and .txt files found,
+  # or None if the folder could not be read.
+  def ls(self, path: str = '') -> list[str] | None:
     try:
-      entries = list(pathlib.Path(dir_).iterdir())
+      entries = list(pathlib.Path(self.resolve(path)).iterdir())
     except (FileNotFoundError, NotADirectoryError, PermissionError):
       return None
-    results = [f for f in entries
-               if (f.is_dir() and not f.name.startswith('.')) or f.suffix == '.txt']
-    return [str(f) for f in results]
+    keep = [f for f in entries
+            if (f.is_dir() and not f.name.startswith('.')) or f.suffix == '.txt']
+    return sorted(self.relative(str(f)) for f in keep)
 
 
-  # Get all .txt files in or below the current subdir.
-  def get_txts(self, dir_ = None) -> list[str]:
-    if dir_ is None:
-      dir_ = self.dir
-    return [str(path) for path in pathlib.Path(dir_).rglob('*.txt')]
+  # Every .txt file at or below a folder, as library paths.
+  def get_txts(self, path: str = '') -> list[str]:
+    base = self.resolve(path)
+    return sorted(self.relative(str(p)) for p in pathlib.Path(base).rglob('*.txt'))
 
   ###
   ### RAND FUNCTIONS
   ###
 
-  # Gets a random .txt file, picking evenly between all files below the
-  # current dir. Returns None if there are no .txt files below it.
-  def rand_file(self, dir_ = None):
-    txts = self.get_txts(dir_)
+  # A random .txt file, picking evenly between every file below the folder.
+  # Returns None if there are none.
+  def rand_file(self, path: str = '') -> str | None:
+    txts = self.get_txts(path)
     if not txts:
       return None
     return random.choice(txts)
 
-  # Gets a random file by choosing evenly among the entries of the current
-  # subdir, then of the chosen subdir, and so on.
-  #
-  # Returns: The path of the chosen file, or None if none was found.
-  def rand_dir(self) -> str | None:
-    return self._rand_dir(self.dir)
 
-
-  def _rand_dir(self, dir_) -> str | None:
-    # Get all non-hidden folders and .txt files.
-    options = self.ls(dir_)
+  # A random file found by choosing evenly among the entries of the folder,
+  # then of the chosen subfolder, and so on. Returns None if none was found.
+  def rand_dir(self, path: str = '') -> str | None:
+    options = self.ls(path)
     if not options:
       return None
 
     options = list(options)
     while options:
       choice = random.choice(options)
-      fname = os.path.join(dir_, choice)
-      if not os.path.isdir(fname):
-        return str(fname)
+      if not self.is_dir(choice):
+        return choice
       # A folder that turns out to hold no .txt files anywhere is skipped
       # rather than returning nothing.
-      result = self._rand_dir(fname)
+      result = self.rand_dir(choice)
       if result is not None:
         return result
       options.remove(choice)

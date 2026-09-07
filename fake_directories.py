@@ -3,8 +3,10 @@ from tempfile import TemporaryDirectory, NamedTemporaryFile
 
 class FakeDirectories():
 
-  def get_rooted(self, path):
-    return '/' + self.root + path.removeprefix(self.root)
+  # A path relative to the temporary root, matching what FileManager returns.
+  def rel(self, full):
+    import os
+    return os.path.relpath(os.path.realpath(full), os.path.realpath(self.root))
 
   def write_file(self, file, txt):
     with open(file.name, 'w') as f:
@@ -46,6 +48,17 @@ class FakeDirectories():
     self.tf4_name = self.tf4.name.removeprefix(self.d3.name).lstrip('/')
     self.tf5_name = self.tf5.name.removeprefix(self.d4.name).lstrip('/')
 
+
+    # Library paths: relative to the root, which is the only kind the
+    # FileManager accepts.
+    self.tf1_path = self.rel(self.tf1.name)
+    self.tf2_path = self.rel(self.tf2.name)
+    self.tf3_path = self.rel(self.tf3.name)
+    self.tf4_path = self.rel(self.tf4.name)
+    self.tf5_path = self.rel(self.tf5.name)
+    self.d2_path = self.rel(self.d2.name)
+    self.d3_path = self.rel(self.d3.name)
+    self.d4_path = self.rel(self.d4.name)
 
     self.ntf1_name = self.ntf1.name.removeprefix(self.root).lstrip('/')
     self.ntf2_name = self.ntf2.name.removeprefix(self.d2.name).lstrip('/')
