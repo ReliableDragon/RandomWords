@@ -1,9 +1,17 @@
 import logging
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from command_result import CommandResult
 from file_manager import InvalidPath, UnreadableSource
+
+# The names the API uses for the set operations. The command language spells
+# them differently; this is the one place the two vocabularies meet.
+OPERATIONS = {
+  'union': 'combine',
+  'difference': 'diff',
+  'intersection': 'intersection',
+}
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +52,19 @@ def from_result(result: CommandResult, extra: dict = None) -> Response:
     payload['confirm'] = result.confirm
     return Response(409, payload)
   return Response(200 if result.ok else 400, payload)
+
+
+# Records where a newly saved pool came from, whichever route saved it.
+#
+# A pool saved from a text names that text; one saved from the active pool
+# inherits whatever the active pool came from. A pool produced by a set
+# operation is derived from two others and names neither.
+def note_saved_pool(session, result: CommandResult) -> None:
+  data = result.data or {}
+  if 'saved_from' not in data or not result.ok or result.confirm:
+    return
+  session.note_source(data['pool'],
+                      data['saved_from'] or session.sources.get('words'))
 
 
 def fail(status: int, message: str) -> Response:
@@ -109,6 +130,61 @@ def load_random(req: Request) -> Response:
   return from_result(result, {'pools': req.session.pools()})
 
 
+# Saves the active pool, or a text, under a name.
+#
+# An existing name comes back as a question rather than being overwritten.
+# The client answers by repeating the request with force, which is the same
+# yes the terminal gets from a prompt.
+def save(req: Request) -> Response:
+  name = req.body.get('name')
+  if not isinstance(name, str) or not name:
+    return fail(400, 'What should the pool be called?')
+
+  source = req.body.get('from')
+  args = [name]
+  if isinstance(source, str) and source:
+    args.append(source)
+
+  result = req.session.run('alias_load', args)
+
+  if result.confirm and req.body.get('force'):
+    req.session.apply(result)
+    result = replace(result, confirm='')
+
+  note_saved_pool(req.session, result)
+  return from_result(result, {'pools': req.session.pools()})
+
+
+def forget(req: Request) -> Response:
+  name = req.body.get('name')
+  if not isinstance(name, str) or not name:
+    return fail(400, 'Which pool should I forget?')
+  result = req.session.run('forget', [name])
+  return from_result(result, {'pools': req.session.pools()})
+
+
+# Union, difference or intersection of two pools into a third.
+def combine(req: Request) -> Response:
+  operation = req.body.get('op')
+  if operation not in OPERATIONS:
+    return fail(400, f'Unknown operation: {operation!r}. '
+                     f'Use union, difference or intersection.')
+
+  first = req.body.get('a')
+  second = req.body.get('b')
+  if not (isinstance(first, str) and first
+          and isinstance(second, str) and second):
+    return fail(400, 'Give two pools to combine.')
+
+  args = [first, second]
+  out = req.body.get('out')
+  if isinstance(out, str) and out:
+    args.append(out)
+
+  result = req.session.run(OPERATIONS[operation], args)
+  return from_result(result, {'pools': req.session.pools()})
+
+
 def draw(req: Request) -> Response:
   count = req.body.get('count', 1)
   try:
@@ -132,11 +208,17 @@ def command(req: Request) -> Response:
     return fail(400, 'What command should I run?')
 
   result = req.session.run_line(line)
+
+  if result.confirm and req.body.get('force'):
+    req.session.apply(result)
+    result = replace(result, confirm='')
+
   if result.quit:
     # There is no session here to end, and a quit must never reach the
     # process that is serving other requests.
     return fail(400, 'There is no session to quit here. Close the tab.')
 
+  note_saved_pool(req.session, result)
   return from_result(result, {'pools': req.session.pools()})
 
 
@@ -151,15 +233,26 @@ ROUTES = {
   ('GET', '/api/status'): status,
   ('POST', '/api/pools/load'): load,
   ('POST', '/api/pools/random'): load_random,
+  ('POST', '/api/pools/save'): save,
+  ('POST', '/api/pools/op'): combine,
   ('POST', '/api/draw'): draw,
   ('POST', '/api/command'): command,
 }
+
+
+POOL_PREFIX = '/api/pools/'
 
 
 # Runs a request through its route, turning the two path errors into
 # ordinary failed responses so no handler has to guard for them.
 def dispatch(req: Request) -> Response:
   handler = ROUTES.get((req.method, req.path))
+
+  # The one route with a name in its path.
+  if handler is None and req.method == 'DELETE' and req.path.startswith(POOL_PREFIX):
+    req.body = dict(req.body, name=req.path[len(POOL_PREFIX):])
+    handler = forget
+
   if handler is None:
     return fail(404, f'No such endpoint: {req.method} {req.path}')
   try:

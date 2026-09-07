@@ -155,6 +155,35 @@ class ServerTest(unittest.TestCase):
     for word in payload['data']['drawn']:
       self.assertIn(word, ['a', 'b', 'c'])
 
+  def test_delete_over_http(self):
+    self.post('/api/pools/load', {'source': self.td.tf1_path})
+    self.post('/api/pools/save', {'name': 'kept'})
+
+    status, payload = self.send('DELETE', '/api/pools/kept')
+
+    self.assertEqual(status, 200)
+    self.assertEqual({p['name'] for p in payload['pools']}, {'words'})
+
+  def test_delete_from_a_foreign_origin_is_refused(self):
+    self.post('/api/pools/load', {'source': self.td.tf1_path})
+    self.post('/api/pools/save', {'name': 'kept'})
+
+    status, _ = self.send('DELETE', '/api/pools/kept',
+                          headers={'Origin': 'https://evil.example.com'})
+
+    self.assertEqual(status, 403)
+    status, payload = self.send('GET', '/api/pools')
+    self.assertIn('kept', {p['name'] for p in payload['pools']})
+
+  def test_a_percent_encoded_pool_name_is_decoded(self):
+    self.post('/api/pools/load', {'source': self.td.tf1_path})
+    self.post('/api/command', {'line': 'al a_b'})
+
+    status, payload = self.send('DELETE', '/api/pools/a%5Fb')
+
+    self.assertEqual(status, 200)
+    self.assertEqual({p['name'] for p in payload['pools']}, {'words'})
+
   def test_concurrent_requests(self):
     self.post('/api/pools/load', {'source': self.td.tf1_path})
     results = []

@@ -9,6 +9,30 @@ from command import Command
 from fake_command import FakeCommand
 from file_manager import FileManager
 
+# Every syntax the tool documents, and the command each one must resolve to.
+# Shared with the parity test in web_parity_test.py, which drives the same
+# table through the HTTP layer.
+DOCUMENTED_SYNTAXES = [
+  ('ls', 'ls'), ('ls myth', 'ls'), ('ls myth/greek', 'ls'),
+  ('load a.txt', 'load'), ('load alias', 'load'),
+  ('a/b.txt', 'load'), ('LOAD a.txt', 'load'),
+  ('', 'get_word'), ('word', 'get_word'), ('next', 'get_word'),
+  ('5', 'get_word'),
+  ('r', 'load_rand_file'), ('rand myth', 'load_rand_file'),
+  ('random', 'load_rand_file'),
+  ('dr', 'load_rand_dir_file'), ('dir_random', 'load_rand_dir_file'),
+  ('al foo', 'alias_load'), ('alias foo a.txt', 'alias_load'),
+  ('gaw foo bar', 'get_alias_words'),
+  ('help', 'help'),
+  ('mul myth war', 'multi_folder_get_words'),
+  ('c a b', 'combine'), ('d a b', 'diff'), ('i a b', 'intersection'),
+  ('rd', 'rand_diff'), ('rd 450', 'rand_diff'),
+  ('dump', 'dump'), ('dump all', 'dump'),
+  ('quit', 'quit'), ('exit', 'quit'), ('q', 'quit'),
+  ('forget spare', 'forget'), ('rm spare', 'forget'),
+]
+
+
 class ParserTest(unittest.TestCase):
 
   def make_mock_command(self):
@@ -52,24 +76,7 @@ class ParserTest(unittest.TestCase):
     CommandManager(cl).initialize_commands()
     par = Parser(cl)
 
-    cases = [
-      ('ls', 'ls'), ('ls myth', 'ls'), ('ls myth/greek', 'ls'),
-      ('load a.txt', 'load'), ('load alias', 'load'),
-      ('a/b.txt', 'load'), ('LOAD a.txt', 'load'),
-      ('', 'get_word'), ('word', 'get_word'), ('next', 'get_word'),
-      ('5', 'get_word'),
-      ('r', 'load_rand_file'), ('rand myth', 'load_rand_file'),
-      ('random', 'load_rand_file'),
-      ('dr', 'load_rand_dir_file'), ('dir_random', 'load_rand_dir_file'),
-      ('al foo', 'alias_load'), ('alias foo a.txt', 'alias_load'),
-      ('gaw foo bar', 'get_alias_words'),
-      ('help', 'help'),
-      ('mul myth war', 'multi_folder_get_words'),
-      ('c a b', 'combine'), ('d a b', 'diff'), ('i a b', 'intersection'),
-      ('rd', 'rand_diff'), ('rd 450', 'rand_diff'),
-      ('dump', 'dump'), ('dump all', 'dump'),
-      ('quit', 'quit'), ('exit', 'quit'), ('q', 'quit'),
-    ]
+    cases = DOCUMENTED_SYNTAXES
     for line, expected in cases:
       with self.subTest(line=line):
         cmd, _ = par.parse(line)

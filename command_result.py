@@ -22,6 +22,10 @@ class CommandResult:
   # Context entries to merge. Withheld while `confirm` is set.
   updates: dict = field(default_factory=dict)
 
+  # Context entries to forget. Applied with `updates` and under the same
+  # rules, so a failed or unconfirmed command removes nothing.
+  removes: list = field(default_factory=list)
+
   # A question the front end must ask before `updates` are applied.
   confirm: str = ''
 

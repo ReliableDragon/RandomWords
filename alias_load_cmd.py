@@ -43,7 +43,11 @@ class AliasLoad(FileCommand):
       return CommandResult.fail('No words are loaded, so there is nothing to save.')
 
     updates = {alias: words}
-    data = {'pool': alias, 'size': len(words)}
+    data = {'pool': alias, 'size': len(words),
+            # Which text this came from, or None for the active pool. A
+            # front end uses it to say where a saved pool came from; the key
+            # being present is what marks this result as a save.
+            'saved_from': args_[1] if len(args_) == 2 else None}
 
     if alias in context:
       # The command does not ask; it says what needs asking and hands back

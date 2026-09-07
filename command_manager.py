@@ -45,5 +45,7 @@ class CommandManager():
     return result
 
   def _merge(self, result: CommandResult):
+    for name in result.removes:
+      self.context.pop(name, None)
     if result.updates:
       self.context |= result.updates

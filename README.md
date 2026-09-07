@@ -108,6 +108,9 @@ copied or exported as a one-word-per-line file.
 | `GET` | `/api/status` | | Cache statistics and pools |
 | `POST` | `/api/pools/load` | `{source}` | Loads a text or a saved pool |
 | `POST` | `/api/pools/random` | `{under, mode}` | Loads a random text; `mode` is `flat` or `walk` |
+| `POST` | `/api/pools/save` | `{name, from, force}` | Names the active pool, or a text |
+| `POST` | `/api/pools/op` | `{op, a, b, out}` | Union, difference or intersection |
+| `DELETE` | `/api/pools/{name}` | | Forgets a pool |
 | `POST` | `/api/draw` | `{count}` | Draws from the active pool, capped at 1000 |
 | `POST` | `/api/command` | `{line}` | Runs a line of the command language |
 
@@ -118,6 +121,12 @@ takes under a microsecond on the server.
 Responses carry `{ok, message}` and sometimes `data`. The status is a
 function of `ok` and `confirm`: 400 for anything the user got wrong, 409
 when a command needs a yes before it acts, 500 for anything unhandled.
+
+A 409 is how the overwrite question crosses the wire. Saving over an existing
+name comes back unapplied, carrying the question the terminal would have
+asked; the client repeats the request with `"force": true` to answer yes.
+The command computes its answer either way and never learns which front end
+asked.
 
 ### Why it is only for you
 
@@ -216,6 +225,7 @@ Arguments in `<angle brackets>` are required, `[square brackets]` optional.
 | `d <A> [B] [C]`, `diff` | Set **difference** (words in the first pool that are not in the second). |
 | `i <A> [B] [C]`, `intersection` | Set **intersection**. |
 | `rd [10\|70\|450]`, `rand_diff` | Load a random file and subtract the 10k, 70k (default), or 450k most-common-words dictionary, leaving only that book's unusual words as the active pool. |
+| `forget <name>`, `rm` | Forget a saved pool. The active pool cannot be forgotten. |
 | `dump [all]` | Print each pool in the context with its size. `dump all` prints the full contents of every pool, which is enormous for real books. |
 
 #### Set-operation argument forms
@@ -331,6 +341,7 @@ Command classes:
 | `multi_folder_get_words_cmd.py` | `MultiFolderGetWords` | `mul` |
 | `combine_cmd.py` / `diff_cmd.py` / `intersection_cmd.py` | `Combine` / `Diff` / `Intersection` | `c` / `d` / `i` |
 | `rand_diff_cmd.py` | `RandDiff` | `rd` |
+| `forget_cmd.py` | `Forget` | `forget`, `rm` |
 | `dump_cmd.py` | `Dump` | `dump` |
 | `help_cmd.py` | `Help` | `help` |
 | `quit_cmd.py` | `Quit` | `quit` |
@@ -346,10 +357,10 @@ Command classes:
    is the line to show, `ok` is false for a user error, `updates` are the
    context entries to store, `data` is a structured payload for an API,
    `confirm` is a question that must be answered before the updates apply,
-   and `quit` ends the session.
-4. The manager merges `updates` into the context, but only when the command
-   succeeded and set no `confirm`, so a failed command cannot change the
-   session. It hands the result back.
+   `removes` are pools to forget, and `quit` ends the session.
+4. The manager applies `removes` and merges `updates` into the context, but
+   only when the command succeeded and set no `confirm`, so a failed command
+   cannot change the session. It hands the result back.
 5. The front end decides what to do with it. The terminal prints `message`,
    asks `confirm` and calls `CommandManager.apply` on a yes, and stops on
    `quit`. An HTTP handler would serialise `message` and `data` instead.
@@ -395,7 +406,10 @@ command that takes a path, through the real parser and command manager, with
 every spelling of a path that tries to leave the library, and asserts each is
 refused and the session unchanged. `web_server_test.py` runs a real server on
 an ephemeral port and drives the origin table above with the headers a
-browser would really send.
+browser would really send. `web_parity_test.py` drives every documented
+command syntax through the one endpoint that accepts the command language,
+sharing its table with the parser test, so the browser cannot quietly lose a
+command the terminal has.
 
 ## Known limitations
 
@@ -409,9 +423,6 @@ browser would really send.
   450k dictionary takes about a quarter of a second each time. The server
   caches, the terminal deliberately does not, because a person types slower
   than a parse.
-- The browser interface cannot yet save, rename or combine pools. That is
-  the next phase; until then the command line is the way to do it, and the
-  terminal has all of it.
 - `Command.validate_args` can only ever check `str` arguments, because
   `parse_args` yields strings for every command except `get_word`.
 - Sampling is uniform over distinct spellings, not over occurrences, so rare

@@ -14,6 +14,7 @@ from combine_cmd import Combine
 from diff_cmd import Diff
 from intersection_cmd import Intersection
 from rand_diff_cmd import RandDiff
+from forget_cmd import Forget
 from quit_cmd import Quit
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ class CommandList():
       Diff(self.fm),
       Intersection(self.fm),
       RandDiff(self),
+      Forget(),
       Quit()
     ]
     return cmds

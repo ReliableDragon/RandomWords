@@ -188,3 +188,169 @@ class WebRoutesTest(unittest.TestCase):
 
   def test_unknown_endpoint(self):
     self.assertEqual(self.go('GET', '/api/nope').status, 404)
+
+  ###
+  ### saving, forgetting and combining
+  ###
+
+  def test_save_names_the_active_pool(self):
+    self.load_a_text()
+
+    response = self.go('POST', '/api/pools/save', body={'name': 'kept'})
+
+    self.assertEqual(response.status, 200)
+    names = {p['name'] for p in response.payload['pools']}
+    self.assertEqual(names, {'words', 'kept'})
+
+  def test_save_records_where_the_pool_came_from(self):
+    self.load_a_text()
+    response = self.go('POST', '/api/pools/save', body={'name': 'kept'})
+    saved = next(p for p in response.payload['pools'] if p['name'] == 'kept')
+    self.assertEqual(saved['source'], self.td.td.tf1_path)
+
+  def test_save_from_a_named_text(self):
+    response = self.go('POST', '/api/pools/save',
+                       body={'name': 'other', 'from': self.td.td.tf4_path})
+    saved = next(p for p in response.payload['pools'] if p['name'] == 'other')
+    self.assertEqual(saved['size'], 3)
+    self.assertEqual(saved['source'], self.td.td.tf4_path)
+
+  def test_save_needs_a_name(self):
+    self.load_a_text()
+    self.assertEqual(self.go('POST', '/api/pools/save').status, 400)
+    self.assertEqual(self.go('POST', '/api/pools/save',
+                             body={'name': ''}).status, 400)
+
+  def test_save_over_a_name_asks_first(self):
+    self.load_a_text()
+    self.go('POST', '/api/pools/save', body={'name': 'kept'})
+    self.go('POST', '/api/pools/load', body={'source': self.td.td.tf4_path})
+
+    response = self.go('POST', '/api/pools/save', body={'name': 'kept'})
+
+    self.assertEqual(response.status, 409)
+    self.assertIn('Overwrite', response.payload['confirm'])
+    self.assertCountEqual(self.session.context['kept'], ['a', 'b', 'c'])
+
+  def test_save_with_force_replaces(self):
+    self.load_a_text()
+    self.go('POST', '/api/pools/save', body={'name': 'kept'})
+    self.go('POST', '/api/pools/load', body={'source': self.td.td.tf4_path})
+
+    response = self.go('POST', '/api/pools/save',
+                       body={'name': 'kept', 'force': True})
+
+    self.assertEqual(response.status, 200)
+    self.assertNotIn('confirm', response.payload)
+    self.assertCountEqual(self.session.context['kept'], ['one', 'two', 'three'])
+
+  def test_forget_removes_a_pool(self):
+    self.load_a_text()
+    self.go('POST', '/api/pools/save', body={'name': 'kept'})
+
+    response = self.go('DELETE', '/api/pools/kept')
+
+    self.assertEqual(response.status, 200)
+    self.assertEqual({p['name'] for p in response.payload['pools']}, {'words'})
+
+  def test_forget_refuses_the_active_pool(self):
+    self.load_a_text()
+    response = self.go('DELETE', '/api/pools/words')
+    self.assertEqual(response.status, 400)
+    self.assertIn('words', self.session.context)
+
+  def test_forget_an_unknown_pool(self):
+    self.assertEqual(self.go('DELETE', '/api/pools/nope').status, 400)
+
+  def test_combine_union(self):
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'b', 'from': self.td.td.tf4_path})
+
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'union', 'a': 'a', 'b': 'b', 'out': 'both'})
+
+    sizes = {p['name']: p['size'] for p in response.payload['pools']}
+    self.assertEqual(sizes['both'], 6)
+
+  def test_combine_difference_is_not_symmetric(self):
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'b', 'from': self.td.td.tf4_path})
+
+    self.go('POST', '/api/pools/op',
+            body={'op': 'difference', 'a': 'a', 'b': 'b', 'out': 'left'})
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'difference', 'a': 'b', 'b': 'a',
+                             'out': 'right'})
+
+    sizes = {p['name']: p['size'] for p in response.payload['pools']}
+    self.assertEqual((sizes['left'], sizes['right']), (3, 3))
+    self.assertCountEqual(self.session.context['left'], ['a', 'b', 'c'])
+    self.assertCountEqual(self.session.context['right'],
+                          ['one', 'two', 'three'])
+
+  def test_combine_without_an_out_name_replaces_the_first(self):
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'b', 'from': self.td.td.tf4_path})
+
+    self.go('POST', '/api/pools/op',
+            body={'op': 'union', 'a': 'a', 'b': 'b'})
+
+    self.assertEqual(len(self.session.context['a']), 6)
+
+  def test_combine_rejects_a_bad_operation(self):
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'sideways', 'a': 'a', 'b': 'b'})
+    self.assertEqual(response.status, 400)
+    self.assertIn('union, difference or intersection',
+                  response.payload['message'])
+
+  def test_combine_needs_two_pools(self):
+    for body in [{'op': 'union'}, {'op': 'union', 'a': 'a'},
+                 {'op': 'union', 'b': 'b'}]:
+      with self.subTest(body=body):
+        self.assertEqual(self.go('POST', '/api/pools/op', body=body).status, 400)
+
+  def test_command_with_force_answers_the_question(self):
+    self.load_a_text()
+    self.go('POST', '/api/command', body={'line': 'al kept'})
+    self.go('POST', '/api/pools/load', body={'source': self.td.td.tf4_path})
+
+    asked = self.go('POST', '/api/command', body={'line': 'al kept'})
+    self.assertEqual(asked.status, 409)
+
+    forced = self.go('POST', '/api/command',
+                     body={'line': 'al kept', 'force': True})
+    self.assertEqual(forced.status, 200)
+    self.assertCountEqual(self.session.context['kept'],
+                          ['one', 'two', 'three'])
+
+  def test_both_save_paths_record_the_same_source(self):
+    self.load_a_text()
+
+    self.go('POST', '/api/pools/save', body={'name': 'by_button'})
+    self.go('POST', '/api/command', body={'line': 'al by_command'})
+    response = self.go('POST', '/api/command',
+                       body={'line': f'al from_file {self.td.td.tf4_path}'})
+
+    sources = {p['name']: p['source'] for p in response.payload['pools']}
+    self.assertEqual(sources['by_button'], self.td.td.tf1_path)
+    self.assertEqual(sources['by_command'], self.td.td.tf1_path)
+    self.assertEqual(sources['from_file'], self.td.td.tf4_path)
+
+  def test_a_derived_pool_names_no_source(self):
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'b', 'from': self.td.td.tf4_path})
+
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'union', 'a': 'a', 'b': 'b', 'out': 'both'})
+
+    sources = {p['name']: p['source'] for p in response.payload['pools']}
+    self.assertIsNone(sources['both'])

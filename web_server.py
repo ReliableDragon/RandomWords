@@ -3,7 +3,7 @@ import logging
 import os
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 
 import web_routes
 
@@ -38,6 +38,9 @@ class Handler(BaseHTTPRequestHandler):
   def do_POST(self):
     self.handle_request('POST')
 
+  def do_DELETE(self):
+    self.handle_request('DELETE')
+
   def handle_request(self, method):
     refusal = self.check_caller(method)
     if refusal:
@@ -58,7 +61,7 @@ class Handler(BaseHTTPRequestHandler):
 
     request = web_routes.Request(
         method=method,
-        path=parsed.path,
+        path=unquote(parsed.path),
         query={k: v[0] for k, v in parse_qs(parsed.query).items()},
         body=body,
         session=self.server.sessions.for_request(self.headers),
