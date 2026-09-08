@@ -15,6 +15,13 @@
     kept: [],                // kept words, in the order they were kept
     busy: false,
     drawSeq: 0,              // guards against an out-of-order draw response
+    pools: [],               // every pool, as last reported by the server
+    pendingSave: null,       // name awaiting a yes/no on the save form, or null
+    pendingCommand: null,    // line awaiting a yes/no on the command line, or null
+    cmdLog: [],              // {kind, text} entries shown in the command output
+    cmdHistory: [],          // lines run this session, oldest first
+    cmdHistIndex: -1,        // position while walking history with arrows; -1 is the live draft
+    cmdDraft: '',            // what was being typed before Up was first pressed
   };
 
   // ---------- elements ----------
@@ -37,6 +44,25 @@
     toast: document.getElementById('toast'),
     toastMessage: document.getElementById('toastMessage'),
     toastClose: document.getElementById('toastClose'),
+    poolsList: document.getElementById('poolsList'),
+    poolSaveForm: document.getElementById('poolSaveForm'),
+    poolSaveName: document.getElementById('poolSaveName'),
+    saveConfirm: document.getElementById('saveConfirm'),
+    saveConfirmText: document.getElementById('saveConfirmText'),
+    saveConfirmYes: document.getElementById('saveConfirmYes'),
+    saveConfirmNo: document.getElementById('saveConfirmNo'),
+    combineForm: document.getElementById('combineForm'),
+    combineA: document.getElementById('combineA'),
+    combineB: document.getElementById('combineB'),
+    combineOp: document.getElementById('combineOp'),
+    combineOut: document.getElementById('combineOut'),
+    cmdForm: document.getElementById('cmdForm'),
+    cmdInput: document.getElementById('cmdInput'),
+    cmdOutput: document.getElementById('cmdOutput'),
+    cmdConfirm: document.getElementById('cmdConfirm'),
+    cmdConfirmText: document.getElementById('cmdConfirmText'),
+    cmdConfirmYes: document.getElementById('cmdConfirmYes'),
+    cmdConfirmNo: document.getElementById('cmdConfirmNo'),
   };
 
   // ---------- small helpers ----------
@@ -98,6 +124,16 @@
       });
   }
 
+  function apiDelete(path) {
+    return fetch(path, { method: 'DELETE', headers: { 'Accept': 'application/json' } })
+      .then(readJson)
+      .then(handleResult)
+      .catch(function () {
+        showError('Could not reach the server.');
+        return null;
+      });
+  }
+
   function readJson(res) {
     return res.json().catch(function () {
       throw new Error('bad json');
@@ -105,9 +141,10 @@
   }
 
   // Every response, success or failure, comes back as JSON with an `ok`
-  // flag. A 409's `confirm` field is not used by anything this front end
-  // does yet, so it is treated like any other non-ok response rather than
-  // crashing on it.
+  // flag. A 409 asking to confirm carries `ok: true` alongside `confirm`,
+  // so it passes straight through here rather than being caught below —
+  // the save form and the command line are what read `confirm` off the
+  // result this returns.
   function handleResult(data) {
     if (!data || typeof data !== 'object') {
       showError('The server sent back something unexpected.');
@@ -287,6 +324,7 @@
         state.poolSize = data.data.size;
         updateCachedSize(path, data.data.size);
         renderTree();
+        renderPools(data.pools);
         return performDraw(getCount());
       })
       .finally(function () { setBusy(false); });
@@ -304,6 +342,7 @@
         state.poolSize = size;
         updateCachedSize(source, size);
         renderTree();
+        renderPools(data.pools);
         return performDraw(getCount());
       })
       .finally(function () { setBusy(false); });
@@ -558,6 +597,184 @@
     }
   });
 
+  // ---------- pools pane ----------
+
+  // Every command that can touch a pool hands back a fresh `pools` array, so
+  // this is the one place that redraws both the list and the two pickers in
+  // the combine form, rather than each caller patching state by hand.
+  function renderPools(pools) {
+    if (!pools) return;
+    state.pools = pools;
+    renderPoolsList();
+    populateSelect(el.combineA);
+    populateSelect(el.combineB);
+  }
+
+  function renderPoolsList() {
+    el.poolsList.innerHTML = '';
+    if (state.pools.length === 0) {
+      var empty = document.createElement('p');
+      empty.className = 'empty-note';
+      empty.textContent = 'No pools yet.';
+      el.poolsList.appendChild(empty);
+      return;
+    }
+    state.pools.forEach(function (pool) {
+      el.poolsList.appendChild(renderPoolRow(pool));
+    });
+  }
+
+  function renderPoolRow(pool) {
+    var row = document.createElement('div');
+    row.className = 'pool-row' + (pool.active ? ' is-active' : '');
+
+    var load = document.createElement('button');
+    load.type = 'button';
+    load.className = 'pool-load';
+    load.setAttribute('aria-label',
+        (pool.active ? pool.name + ', active. Load it again' : 'Load ' + pool.name)
+        + ', ' + fmtWords(pool.size) + '.');
+    load.addEventListener('click', function () { loadPool(pool.name); });
+
+    var nameRow = document.createElement('span');
+    nameRow.className = 'pool-name-row';
+    var name = document.createElement('span');
+    name.className = 'pool-name';
+    name.textContent = pool.name;
+    nameRow.appendChild(name);
+    if (pool.active) {
+      var badge = document.createElement('span');
+      badge.className = 'pool-badge';
+      badge.textContent = 'active';
+      nameRow.appendChild(badge);
+    }
+    load.appendChild(nameRow);
+
+    var source = document.createElement('span');
+    source.className = 'pool-source';
+    source.textContent = pool.source ? stripTxt(baseName(pool.source)) : '—';
+    if (pool.source) source.title = pool.source;
+    load.appendChild(source);
+
+    var size = document.createElement('span');
+    size.className = 'pool-size';
+    size.textContent = pool.size.toLocaleString('en-US');
+
+    var forget = document.createElement('button');
+    forget.type = 'button';
+    forget.className = 'pool-forget';
+    forget.textContent = '×';
+    forget.setAttribute('aria-label', 'Forget ' + pool.name);
+    forget.addEventListener('click', function () { forgetPool(pool.name); });
+
+    row.appendChild(load);
+    row.appendChild(size);
+    row.appendChild(forget);
+    return row;
+  }
+
+  // Fills a <select> with every known pool name, keeping the current
+  // selection if it still names a pool that exists.
+  function populateSelect(select) {
+    var prevValue = select.value;
+    select.innerHTML = '';
+    state.pools.forEach(function (pool) {
+      var opt = document.createElement('option');
+      opt.value = pool.name;
+      opt.textContent = pool.name;
+      select.appendChild(opt);
+    });
+    if (state.pools.some(function (p) { return p.name === prevValue; })) {
+      select.value = prevValue;
+    }
+  }
+
+  function loadPool(name) {
+    if (state.busy) return;
+    setBusy(true);
+    apiPost('/api/pools/load', { source: name })
+      .then(function (data) {
+        if (!data) return;
+        adoptServerPool(data.pools);
+        renderPools(data.pools);
+        renderTree();
+        return performDraw(getCount());
+      })
+      .finally(function () { setBusy(false); });
+  }
+
+  function forgetPool(name) {
+    apiDelete('/api/pools/' + encodeURIComponent(name)).then(function (data) {
+      if (!data) return;
+      renderPools(data.pools);
+    });
+  }
+
+  // ---------- pools pane: save form ----------
+
+  el.poolSaveForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = el.poolSaveName.value.trim();
+    if (!name) return;
+    submitSave(name, false);
+  });
+
+  // A 409 here carries `ok: true` alongside `confirm`, so apiPost's usual
+  // handling (a toast on failure) never fires for it — it comes straight
+  // through, and this is the one place that reads `confirm` off the result.
+  function submitSave(name, force) {
+    var body = { name: name };
+    if (force) body.force = true;
+    apiPost('/api/pools/save', body).then(function (data) {
+      if (!data) return;
+      if (data.confirm) {
+        state.pendingSave = name;
+        showSaveConfirm(data.confirm);
+        return;
+      }
+      hideSaveConfirm();
+      el.poolSaveName.value = '';
+      renderPools(data.pools);
+    });
+  }
+
+  function showSaveConfirm(question) {
+    el.saveConfirmText.textContent = question;
+    el.saveConfirm.hidden = false;
+  }
+
+  function hideSaveConfirm() {
+    el.saveConfirm.hidden = true;
+    state.pendingSave = null;
+  }
+
+  el.saveConfirmYes.addEventListener('click', function () {
+    var name = state.pendingSave;
+    hideSaveConfirm();
+    if (name) submitSave(name, true);
+  });
+
+  el.saveConfirmNo.addEventListener('click', function () {
+    hideSaveConfirm();
+  });
+
+  // ---------- pools pane: combine form ----------
+
+  el.combineForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var a = el.combineA.value;
+    var b = el.combineB.value;
+    if (!a || !b) return;
+    var body = { op: el.combineOp.value, a: a, b: b };
+    var out = el.combineOut.value.trim();
+    if (out) body.out = out;
+    apiPost('/api/pools/op', body).then(function (data) {
+      if (!data) return;
+      el.combineOut.value = '';
+      renderPools(data.pools);
+    });
+  });
+
   // ---------- busy state ----------
 
   function setBusy(isBusy) {
@@ -566,6 +783,155 @@
     el.randFlatBtn.disabled = isBusy;
     el.randWalkBtn.disabled = isBusy;
   }
+
+  // ---------- command line ----------
+
+  // Bypasses apiPost/handleResult on purpose: a failed command (ok: false)
+  // is not a network problem, it is the terminal's own output, and
+  // handleResult's toast-and-swallow behaviour would throw the message
+  // away instead of putting it where a command line's answer belongs.
+  function apiCommandRaw(line, force) {
+    var body = { line: line };
+    if (force) body.force = true;
+    return fetch('/api/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(readJson)
+      .catch(function () {
+        showError('Could not reach the server.');
+        return null;
+      });
+  }
+
+  function logCmd(kind, text) {
+    state.cmdLog.push({ kind: kind, text: text });
+    if (state.cmdLog.length > 100) state.cmdLog.shift();
+    renderCmdLog();
+  }
+
+  function renderCmdLog() {
+    el.cmdOutput.innerHTML = '';
+    state.cmdLog.forEach(function (entry) {
+      var p = document.createElement('p');
+      p.className = 'cmdline-line cmdline-line-' + entry.kind;
+      p.textContent = entry.text;
+      el.cmdOutput.appendChild(p);
+    });
+    el.cmdOutput.scrollTop = el.cmdOutput.scrollHeight;
+  }
+
+  function submitCommand(line, force) {
+    return apiCommandRaw(line, force).then(function (data) {
+      if (!data || typeof data !== 'object') return;
+      if (data.confirm) {
+        state.pendingCommand = line;
+        showCmdConfirm(data.confirm);
+        return;
+      }
+      hideCmdConfirm();
+      logCmd(data.ok ? 'out' : 'err', data.message || 'Done.');
+      // A command can load, save, forget, or combine pools just as easily
+      // as any button here can, so the pane is refreshed on every answer
+      // rather than only on the requests this file itself made.
+      if (data.pools) renderPools(data.pools);
+    });
+  }
+
+  function showCmdConfirm(question) {
+    el.cmdConfirmText.textContent = question;
+    el.cmdConfirm.hidden = false;
+    el.cmdInput.disabled = true;
+  }
+
+  function hideCmdConfirm() {
+    el.cmdConfirm.hidden = true;
+    state.pendingCommand = null;
+    el.cmdInput.disabled = false;
+    el.cmdInput.focus();
+  }
+
+  el.cmdConfirmYes.addEventListener('click', function () {
+    var line = state.pendingCommand;
+    hideCmdConfirm();
+    if (line != null) submitCommand(line, true);
+  });
+
+  el.cmdConfirmNo.addEventListener('click', function () {
+    hideCmdConfirm();
+  });
+
+  el.cmdForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (state.pendingCommand !== null) return;
+    var line = el.cmdInput.value;
+    if (!line.trim()) return;
+    state.cmdHistory.push(line);
+    state.cmdHistIndex = -1;
+    state.cmdDraft = '';
+    logCmd('in', '> ' + line);
+    el.cmdInput.value = '';
+    submitCommand(line, false);
+  });
+
+  el.cmdInput.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      navigateCmdHistory(-1);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      navigateCmdHistory(1);
+    } else if (e.key === 'Enter' || e.key === 'Return' || e.keyCode === 13) {
+      // A single-text-field form submits implicitly on Enter in most
+      // browsers, but forcing it here means that is not load-bearing.
+      e.preventDefault();
+      el.cmdForm.requestSubmit();
+    }
+  });
+
+  // -1 is the live draft; 0..length-1 walks backward from the most recent
+  // line. Up from the draft stashes it so Down can return to it later.
+  function navigateCmdHistory(dir) {
+    var hist = state.cmdHistory;
+    if (hist.length === 0) return;
+    if (state.cmdHistIndex === -1) {
+      if (dir > 0) return;
+      state.cmdDraft = el.cmdInput.value;
+      state.cmdHistIndex = hist.length - 1;
+    } else {
+      var next = state.cmdHistIndex + dir;
+      if (next < 0) next = 0;
+      if (next >= hist.length) {
+        state.cmdHistIndex = -1;
+        el.cmdInput.value = state.cmdDraft;
+        return;
+      }
+      state.cmdHistIndex = next;
+    }
+    el.cmdInput.value = hist[state.cmdHistIndex];
+    var v = el.cmdInput.value;
+    el.cmdInput.setSelectionRange(v.length, v.length);
+  }
+
+  // `/` focuses the command line from anywhere, the same way the space
+  // handler above guards itself: skip it while any field is already taking
+  // input. That guard is also what lets `/` reach the command line's own
+  // input as an ordinary character once it is focused, rather than being
+  // swallowed on every keystroke.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== '/') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var target = document.activeElement;
+    var tag = target ? target.tagName : '';
+    // Only somewhere text can be typed should swallow this. A button never
+    // consumes '/', and focus lands on a button after almost every click,
+    // which left the shortcut dead most of the time.
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (target && target.isContentEditable) return;
+    e.preventDefault();
+    el.cmdInput.focus();
+  });
 
   // ---------- init ----------
 
@@ -580,6 +946,7 @@
       adoptServerPool(data.pools);
       renderSourceLine();
       renderTree();
+      renderPools(data.pools);
     });
 
     drawWords(getCount());

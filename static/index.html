@@ -78,7 +78,74 @@
 
   </main>
 
+  <aside class="pools" aria-label="Pools">
+    <div class="pools-head">
+      <h2 class="section-title">Pools</h2>
+    </div>
+
+    <div id="poolsList" class="pools-list">
+      <p class="empty-note">No pools yet.</p>
+    </div>
+
+    <div class="pool-forms">
+      <form id="poolSaveForm" class="pool-form">
+        <h3 class="pool-form-title">Save</h3>
+        <div class="pool-form-row">
+          <input id="poolSaveName" class="text-input" type="text"
+                 placeholder="Name for the active pool" autocomplete="off"
+                 aria-label="Name for the active pool" required>
+          <button class="btn btn-quiet btn-small" type="submit">Save</button>
+        </div>
+        <div id="saveConfirm" class="confirm-row" hidden>
+          <span id="saveConfirmText" class="confirm-text"></span>
+          <div class="confirm-actions">
+            <button id="saveConfirmYes" class="btn btn-small btn-primary" type="button">Yes, overwrite</button>
+            <button id="saveConfirmNo" class="btn btn-small btn-quiet" type="button">No</button>
+          </div>
+        </div>
+      </form>
+
+      <form id="combineForm" class="pool-form">
+        <h3 class="pool-form-title">Combine</h3>
+        <div class="pool-form-row combine-row">
+          <select id="combineA" class="select-input" aria-label="First pool" required></select>
+          <select id="combineOp" class="select-input select-op" aria-label="Operation">
+            <option value="union">&cup; union</option>
+            <option value="difference">&minus; difference</option>
+            <option value="intersection">&cap; intersection</option>
+          </select>
+          <select id="combineB" class="select-input" aria-label="Second pool" required></select>
+        </div>
+        <p class="pool-form-note">Difference (&minus;) keeps the first pool&rsquo;s words that are not in the second.</p>
+        <div class="pool-form-row">
+          <input id="combineOut" class="text-input" type="text"
+                 placeholder="Name for the result (blank overwrites the first)"
+                 autocomplete="off" aria-label="Name for the result">
+          <button class="btn btn-quiet btn-small" type="submit">Combine</button>
+        </div>
+      </form>
+    </div>
+  </aside>
+
 </div>
+
+<footer class="cmdline" aria-label="Command line">
+  <div id="cmdOutput" class="cmdline-output" aria-live="polite"></div>
+  <div id="cmdConfirm" class="confirm-row cmdline-confirm" hidden>
+    <span id="cmdConfirmText" class="confirm-text"></span>
+    <div class="confirm-actions">
+      <button id="cmdConfirmYes" class="btn btn-small btn-primary" type="button">Yes</button>
+      <button id="cmdConfirmNo" class="btn btn-small btn-quiet" type="button">No</button>
+    </div>
+  </div>
+  <form id="cmdForm" class="cmdline-row">
+    <span class="cmdline-prompt" aria-hidden="true">&gt;</span>
+    <input id="cmdInput" class="cmdline-input" type="text" autocomplete="off"
+           autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="Command&hellip; (/ to focus, &uarr;&darr; for history, help to list commands)"
+           aria-label="Command line">
+  </form>
+</footer>
 
 <script src="/app.js"></script>
 </body>

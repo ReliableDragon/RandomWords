@@ -1,9 +1,15 @@
+import re
+
 from file_command import FileCommand
 from command_result import CommandResult
 from arg import Arg
 from file_manager import UnreadableSource
 
 OVERWRITE_QUESTION = 'Alias exists. Overwrite? y/N'
+
+# What the command language can spell. An API caller reaches execute()
+# without passing the syntax, so the rule lives here rather than in matches().
+POOL_NAME = re.compile(r'\w+\Z')
 
 class AliasLoad(FileCommand):
 
@@ -27,6 +33,11 @@ class AliasLoad(FileCommand):
 
   def execute(self, args_, context):
     alias = args_[0]
+
+    if not POOL_NAME.match(alias):
+      return CommandResult.fail(
+          f'"{alias}" cannot be a pool name. Use letters, digits and '
+          f'underscores.')
     if len(args_) == 2:
       # get_words resolves the path itself.
       try:

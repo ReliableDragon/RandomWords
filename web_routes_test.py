@@ -354,3 +354,11 @@ class WebRoutesTest(unittest.TestCase):
 
     sources = {p['name']: p['source'] for p in response.payload['pools']}
     self.assertIsNone(sources['both'])
+
+  def test_save_refuses_a_name_the_terminal_could_not_use(self):
+    self.load_a_text()
+    for name in ['has space', 'a/b', 'load classics/x.txt']:
+      with self.subTest(name=name):
+        response = self.go('POST', '/api/pools/save', body={'name': name})
+        self.assertEqual(response.status, 400)
+        self.assertNotIn(name, self.session.context)

@@ -45,6 +45,8 @@ body {
   font-family: var(--font-ui);
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
 }
 
 h1, h2 { margin: 0; }
@@ -65,15 +67,24 @@ kbd {
 
 /* ---------- layout ---------- */
 
+/* The three panes are grid areas rather than flex items so the responsive
+   collapse below can move `pools` under `bench` — while `library` keeps
+   spanning both rows — with a template swap instead of source-order or
+   flex-wrap tricks. `.app` itself is a flex child of `body` (also now a
+   column), which is what gives it a bounded height for `bench` and
+   `pools-list`'s own `overflow-y: auto` to mean something, and a fallback
+   scrollbar of its own if a narrow, stacked layout still runs long. */
 .app {
-  display: flex;
-  min-height: 100vh;
-  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 320px 1fr 300px;
+  grid-template-areas: "library bench pools";
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .library {
-  flex: 0 0 320px;
-  width: 320px;
+  grid-area: library;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -86,24 +97,29 @@ kbd {
 }
 
 .bench {
-  flex: 1 1 auto;
+  grid-area: bench;
   min-width: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
-@media (max-width: 760px) {
-  .app { flex-direction: column; }
-  .library {
-    width: auto;
-    flex: 0 0 auto;
-    max-height: 42vh;
-    position: static;
-    border-right: none;
-    border-bottom: 1px solid var(--hair);
-  }
+.pools {
+  grid-area: pools;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--hair);
+  max-height: 100vh;
+  max-height: 100dvh;
+  position: sticky;
+  top: 0;
 }
+
+/* The two responsive overrides for this layout (1100px, 760px) live at the
+   end of the file, after every selector they touch, so they win the
+   cascade on source order alone — see the note there. */
 
 /* ---------- library pane ---------- */
 
@@ -511,6 +527,251 @@ kbd {
   color: var(--malachite);
 }
 
+/* ---------- pools pane ---------- */
+/* `.pools`'s own box (grid placement, sticky/max-height, background) lives
+   up in the layout section next to `.library`, which it mirrors — so its
+   base rule stays before the responsive overrides that redefine it. */
+
+.pools-head {
+  flex: 0 0 auto;
+  padding: 1.5rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--hair);
+}
+
+.pools-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0.4rem 0;
+}
+
+.pool-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem 0.4rem 1.25rem;
+}
+
+.pool-row:hover { background: var(--sunk); }
+
+.pool-load {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font-family: var(--font-ui);
+}
+
+.pool-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.pool-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-row.is-active .pool-name { color: var(--malachite); }
+
+.pool-badge {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--malachite);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.pool-source {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-size {
+  flex: 0 0 auto;
+  min-width: 3.4ch;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+.pool-forget {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.3rem 0.4rem;
+  border-radius: 4px;
+}
+
+.pool-forget:hover { color: var(--cinnabar); }
+
+.pool-forms {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--hair);
+  padding: 1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.pool-form-title {
+  margin: 0 0 0.6rem;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.pool-form-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pool-form-row + .pool-form-row { margin-top: 0.6rem; }
+
+.combine-row { flex-wrap: wrap; }
+
+.pool-form-note {
+  margin: 0.5rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.text-input,
+.select-input {
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+}
+
+.text-input { flex: 1 1 auto; }
+
+.select-input { flex: 1 1 6rem; }
+
+.select-op {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+}
+
+.confirm-row {
+  margin-top: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--cinnabar);
+  border-radius: 8px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.confirm-row[hidden] { display: none; }
+
+.confirm-text {
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.confirm-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* ---------- command line ---------- */
+
+.cmdline {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-top: 1px solid var(--hair);
+}
+
+.cmdline-confirm {
+  margin: 0.5rem 1.25rem 0;
+}
+
+.cmdline-output {
+  min-height: 1.6em;
+  max-height: 6.4em;
+  overflow-y: auto;
+  padding: 0.5rem 1.25rem 0.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.cmdline-line {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cmdline-line-in { color: var(--ink); }
+.cmdline-line-out { color: var(--muted); }
+.cmdline-line-err { color: var(--cinnabar); }
+
+.cmdline-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1.25rem 0.75rem;
+}
+
+.cmdline-prompt {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--malachite);
+}
+
+.cmdline-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  padding: 0.2rem 0;
+}
+
+.cmdline-input:disabled { color: var(--muted); }
+
 /* ---------- toast ---------- */
 
 .toast {
@@ -549,4 +810,67 @@ kbd {
   line-height: 1;
   cursor: pointer;
   padding: 0.1rem 0.3rem;
+}
+
+/* ---------- responsive ---------- */
+/* Kept last on purpose: every selector below is redefined earlier in this
+   file, and at equal specificity the later rule wins regardless of the
+   media query, so an override placed any earlier would sometimes lose the
+   cascade to the very rule it means to override. */
+
+/* Tight, not crushed: pools drops below the bench first, library stays put
+   as the one fixed point on the page. Rows get an explicit `minmax(0, ...)`
+   size rather than the grid default of `auto`: `bench` and `pools` both set
+   their own `overflow-y: auto`, and an auto-sized track hands a self-
+   scrolling item only its min-content — a few lines — instead of the row's
+   real share, which is what that scrolling was supposed to happen inside
+   of. An explicit track size sidesteps that entirely. */
+@media (max-width: 1100px) {
+  .app {
+    grid-template-columns: 320px 1fr;
+    grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+    grid-template-areas:
+      "library bench"
+      "library pools";
+  }
+  .pools {
+    position: static;
+    max-height: none;
+    border-left: none;
+    border-top: 1px solid var(--hair);
+    /* At full height there is room to pin the forms and let only the list
+       scroll (as `.library` pins its head and scrolls just the tree). Here
+       there usually is not: the two forms alone can be taller than the row,
+       so the pane scrolls as one piece instead of squeezing the list to a
+       sliver above always-visible forms. */
+    overflow-y: auto;
+  }
+  .pools-list {
+    flex: 0 0 auto;
+    overflow-y: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 42vh minmax(0, 3fr) minmax(0, 2fr);
+    grid-template-areas: "library" "bench" "pools";
+  }
+  .library {
+    width: auto;
+    flex: 0 0 auto;
+    max-height: none;
+    position: static;
+    border-right: none;
+    border-bottom: 1px solid var(--hair);
+  }
+  .pools {
+    max-height: none;
+    overflow-y: auto;
+  }
+  .pools-list {
+    flex: 0 0 auto;
+    overflow-y: visible;
+  }
 }

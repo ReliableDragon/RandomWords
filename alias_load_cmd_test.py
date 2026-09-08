@@ -62,3 +62,22 @@ class AliasLoadTest(unittest.TestCase):
       result = al.execute(['dooble'], {})
       self.assertFalse(result.ok)
       self.assertIn('nothing to save', result.message)
+
+  def test_execute_refuses_a_name_the_language_cannot_spell(self):
+    # The API reaches execute() without passing the command syntax, so a
+    # name with a space or a slash would otherwise create a pool that no
+    # terminal command could ever refer to again.
+    with FakeFileManager() as tfm:
+      al = AliasLoad(tfm)
+      for name in ['has space', 'a/b', 'a.txt', 'a-b']:
+        with self.subTest(name=name):
+          result = al.execute([name], {'words': ['a']})
+          self.assertFalse(result.ok)
+          self.assertIn('cannot be a pool name', result.message)
+
+  def test_execute_allows_ordinary_names(self):
+    with FakeFileManager() as tfm:
+      al = AliasLoad(tfm)
+      for name in ['moby', 'pool_2', 'A1']:
+        with self.subTest(name=name):
+          self.assertTrue(al.execute([name], {'words': ['a']}).ok)

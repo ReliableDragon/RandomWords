@@ -94,8 +94,12 @@ dictionary takes 49 microseconds rather than 256 milliseconds. The whole
 parsed corpus is 1.8 million words, comfortably inside the cache's two
 million word budget, so nothing is evicted in practice.
 
-The page has a library on the left and a bench on the right. Click a text to
-load it, then draw. The last twenty draws stay on screen, and clicking any
+The page has three columns: a library on the left, the bench in the middle,
+and pools on the right. Click a text to load it, then draw. The pools pane
+saves the active pool under a name, combines two pools with the three set
+operations, and forgets ones you are done with. A command line across the
+bottom runs the same command language the terminal does, so anything without
+a button stays reachable; `/` focuses it and the up arrow walks its history. The last twenty draws stay on screen, and clicking any
 word keeps it; kept words survive a restart in browser storage and can be
 copied or exported as a one-word-per-line file.
 
@@ -425,6 +429,8 @@ command the terminal has.
   than a parse.
 - `Command.validate_args` can only ever check `str` arguments, because
   `parse_args` yields strings for every command except `get_word`.
+- Combining two pools into a name that already exists overwrites it without
+  asking, while saving over a name asks first. The two ought to agree.
 - Sampling is uniform over distinct spellings, not over occurrences, so rare
   words are as likely as common ones. That is usually the point, but it is
   worth knowing.
