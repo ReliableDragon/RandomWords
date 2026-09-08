@@ -393,3 +393,81 @@ class WebRoutesTest(unittest.TestCase):
         response = self.go('POST', '/api/pools/save', body={'name': name})
         self.assertEqual(response.status, 400)
         self.assertNotIn(name, self.session.context)
+
+  ###
+  ### writing a pool to disk
+  ###
+
+  def test_write_names_the_active_pool(self):
+    self.load_a_text()
+
+    response = self.go('POST', '/api/pools/write', body={'name': 'kept'})
+
+    self.assertEqual(response.status, 200)
+    self.assertIn('custom/kept.txt', response.payload['message'])
+    self.assertEqual(response.payload['data']['size'], 3)
+    self.assertCountEqual(self.fm.get_words('custom/kept.txt'), ['a', 'b', 'c'])
+
+  def test_write_a_named_pool(self):
+    self.load_a_text()
+    self.go('POST', '/api/pools/save', body={'name': 'saved'})
+    self.go('POST', '/api/pools/load', body={'source': self.td.td.tf4_path})
+
+    response = self.go('POST', '/api/pools/write',
+                       body={'name': 'kept', 'pool': 'saved'})
+
+    self.assertEqual(response.status, 200)
+    self.assertCountEqual(self.fm.get_words('custom/kept.txt'), ['a', 'b', 'c'])
+
+  def test_write_needs_a_name(self):
+    self.load_a_text()
+    self.assertEqual(self.go('POST', '/api/pools/write').status, 400)
+    self.assertEqual(self.go('POST', '/api/pools/write',
+                             body={'name': ''}).status, 400)
+
+  def test_write_without_an_active_pool_fails(self):
+    response = self.go('POST', '/api/pools/write', body={'name': 'kept'})
+    self.assertEqual(response.status, 400)
+
+  def test_write_refuses_a_name_the_terminal_could_not_use(self):
+    self.load_a_text()
+    for name in ['has space', 'a/b', 'a.txt']:
+      with self.subTest(name=name):
+        response = self.go('POST', '/api/pools/write', body={'name': name})
+        self.assertEqual(response.status, 400)
+
+  def test_write_over_an_existing_file_asks_first(self):
+    self.load_a_text()
+    self.go('POST', '/api/pools/write', body={'name': 'kept'})
+    self.go('POST', '/api/pools/load', body={'source': self.td.td.tf4_path})
+
+    response = self.go('POST', '/api/pools/write', body={'name': 'kept'})
+
+    self.assertEqual(response.status, 409)
+    self.assertIn('Overwrite', response.payload['confirm'])
+    self.assertCountEqual(self.fm.get_words('custom/kept.txt'), ['a', 'b', 'c'])
+
+  def test_write_with_force_replaces_the_file_on_disk(self):
+    self.load_a_text()
+    self.go('POST', '/api/pools/write', body={'name': 'kept'})
+    self.go('POST', '/api/pools/load', body={'source': self.td.td.tf4_path})
+
+    response = self.go('POST', '/api/pools/write',
+                       body={'name': 'kept', 'force': True})
+
+    self.assertEqual(response.status, 200)
+    self.assertNotIn('confirm', response.payload)
+    self.assertIn('custom/kept.txt', response.payload['message'])
+    self.assertCountEqual(self.fm.get_words('custom/kept.txt'),
+                          ['one', 'two', 'three'])
+
+  def test_write_does_not_change_the_in_memory_pools(self):
+    # Writing to disk is not the same as saving an alias: the pool list
+    # over the wire should be unchanged by it.
+    self.load_a_text()
+    before = self.go('GET', '/api/pools').payload['pools']
+
+    self.go('POST', '/api/pools/write', body={'name': 'kept'})
+
+    after = self.go('GET', '/api/pools').payload['pools']
+    self.assertEqual(before, after)

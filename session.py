@@ -5,6 +5,7 @@ from command_list import CommandList
 from command_manager import CommandManager
 from command_result import CommandResult
 from parser import Parser, unknown_command_result
+from word_index import WordIndex
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +17,12 @@ class Session():
   directory: a context of pools and nothing else.
   """
 
-  def __init__(self, file_manager):
+  def __init__(self, file_manager, index=None):
     self.fm = file_manager
-    self.commands = CommandList(file_manager)
+    # Shared rather than built here, so every session and the warming code
+    # in serve.py read the library once between them.
+    self.index = index if index is not None else WordIndex(file_manager)
+    self.commands = CommandList(file_manager, self.index)
     self.manager = CommandManager(self.commands)
     self.manager.initialize_commands()
     self.parser = Parser(self.commands)
@@ -82,9 +86,10 @@ class SessionStore():
   giving people their own is a change to this class and to nothing else.
   """
 
-  def __init__(self, file_manager):
+  def __init__(self, file_manager, index=None):
     self.fm = file_manager
-    self._session = Session(file_manager)
+    self.index = index if index is not None else WordIndex(file_manager)
+    self._session = Session(file_manager, self.index)
 
 
   def for_request(self, headers=None) -> Session:

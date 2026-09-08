@@ -3,6 +3,7 @@ import pathlib
 import re
 import logging
 import random
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,23 @@ WORD_RE = re.compile(r"[^\W_]+(?:['’‐-][^\W_]+)*")
 
 GUTENBERG_HEADER = '*** START OF THE PROJECT GUTENBERG EBOOK'
 GUTENBERG_FOOTER = '*** END OF THE PROJECT GUTENBERG EBOOK'
+
+# The one folder under the library root this class will ever write to.
+CUSTOM_DIR = 'custom'
+
+# The shape a pool name must have to become a filename: the same `\w+`
+# alias_load_cmd.py already enforces for an alias, duplicated here rather
+# than imported so that this module, which every command depends on, does
+# not have to depend back on a command module.
+POOL_FILE_NAME = re.compile(r'\w+\Z')
+
+
+# The umask cannot be read without being set, so it is set and put straight
+# back. Only file creation in this process can see the gap.
+def _umask() -> int:
+  value = os.umask(0)
+  os.umask(value)
+  return value
 
 
 class InvalidPath(Exception):
@@ -179,3 +197,66 @@ class FileManager():
         return result
       options.remove(choice)
     return None
+
+  ###
+  ### WRITE METHODS
+  ###
+  #
+  # Everything above resolves a path a user typed, which is why `resolve`
+  # has to defend against `..`, a leading `/`, and a symlink leading out of
+  # the tree. Nothing below takes a path at all: `save_cmd.py` is the only
+  # caller, and the only thing it ever hands these methods is a bare pool
+  # name, the same shape alias_load_cmd.py already requires for an alias.
+  # There is no user-facing argument here that could carry a `/` or a `..`
+  # to begin with, so there is no traversal to defend against; the checks
+  # below exist to keep that invariant rather than to resolve one.
+
+  # Turns a bare pool name into the absolute path of its file under
+  # `sources/custom/`.
+  #
+  # Raises: InvalidPath if `name` is not a bare `\w+` name.
+  def write_path(self, name: str) -> str:
+    if not POOL_FILE_NAME.match(name):
+      raise InvalidPath(
+          f'"{name}" cannot be a pool name. Use letters, digits and underscores.')
+    return os.path.join(self.root, CUSTOM_DIR, f'{name}.txt')
+
+
+  # Whether a pool has already been written to disk under this name, so a
+  # caller can ask before overwriting it.
+  #
+  # Raises: InvalidPath if `name` is not a bare `\w+` name.
+  def pool_exists(self, name: str) -> bool:
+    return os.path.exists(self.write_path(name))
+
+
+  # Writes `words` to the custom pool file for `name`, one per line, UTF-8,
+  # with a trailing newline. Returns the library path they were written to.
+  #
+  # The write lands in a temporary file in the same folder first, then
+  # `os.replace` swaps it into place. That swap is atomic on every platform
+  # this runs on, so a process killed mid-write leaves either the old file
+  # or the new one, never a half-written pool that `load` would happily
+  # read as truncated.
+  #
+  # Raises: InvalidPath if `name` is not a bare `\w+` name, or
+  # UnreadableSource if the write itself fails.
+  def write_pool(self, name: str, words: list[str]) -> str:
+    full = self.write_path(name)
+    folder = os.path.dirname(full)
+    tmp_path = None
+    try:
+      os.makedirs(folder, exist_ok=True)
+      fd, tmp_path = tempfile.mkstemp(dir=folder, prefix=f'.{name}.', suffix='.tmp')
+      with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        f.writelines(word + '\n' for word in words)
+      # mkstemp creates a private file, which would leave a saved pool less
+      # readable than every text beside it in the library. Widened to the
+      # ordinary mode for a file, less whatever the umask takes off.
+      os.chmod(tmp_path, 0o666 & ~_umask())
+      os.replace(tmp_path, full)
+    except OSError as e:
+      if tmp_path is not None and os.path.exists(tmp_path):
+        os.remove(tmp_path)
+      raise UnreadableSource(f'Could not write {name}: {e}') from None
+    return self.relative(full)

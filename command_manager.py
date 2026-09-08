@@ -1,5 +1,7 @@
 import logging
 
+from dataclasses import replace
+
 from command import Command
 from command_result import CommandResult
 from file_manager import InvalidPath, UnreadableSource
@@ -39,10 +41,25 @@ class CommandManager():
 
   # Applies updates that were withheld pending a confirmation, once the
   # front end has its yes.
+  #
+  # This is the one place both front ends' yes arrives: the terminal calls
+  # it directly, and the browser's "answer with force" reaches it through
+  # apply_if_forced. A command whose confirmation needs more than a context
+  # merge -- writing a file, which is a real side effect and not something
+  # `updates` can hold pending -- leaves an `on_confirm` callback on the
+  # result for exactly this moment, when the answer is finally known to be
+  # yes.
   def apply(self, result: CommandResult) -> CommandResult:
-    if result.ok:
-      self._merge(result)
-    return result
+    if not result.ok:
+      return result
+    self._merge(result)
+    if result.on_confirm is None:
+      return result
+    try:
+      message = result.on_confirm()
+    except (InvalidPath, UnreadableSource) as e:
+      return CommandResult.fail(str(e))
+    return replace(result, message=message, confirm='')
 
   def _merge(self, result: CommandResult):
     for name in result.removes:

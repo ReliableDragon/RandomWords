@@ -105,6 +105,24 @@
         </div>
       </form>
 
+      <form id="poolWriteForm" class="pool-form">
+        <h3 class="pool-form-title">Write to disk</h3>
+        <div class="pool-form-row">
+          <input id="poolWriteName" class="text-input" type="text"
+                 placeholder="File name for the active pool" autocomplete="off"
+                 aria-label="File name for the active pool" required>
+          <button class="btn btn-quiet btn-small" type="submit">Write</button>
+        </div>
+        <p id="writeNote" class="pool-form-note">Writes the active pool to custom/&lt;name&gt;.txt, so it survives a restart and can be loaded again like any other text.</p>
+        <div id="writeConfirm" class="confirm-row" hidden>
+          <span id="writeConfirmText" class="confirm-text"></span>
+          <div class="confirm-actions">
+            <button id="writeConfirmYes" class="btn btn-small btn-primary" type="button">Yes, overwrite</button>
+            <button id="writeConfirmNo" class="btn btn-small btn-quiet" type="button">No</button>
+          </div>
+        </div>
+      </form>
+
       <form id="combineForm" class="pool-form">
         <h3 class="pool-form-title">Combine</h3>
         <div class="pool-form-row combine-row">

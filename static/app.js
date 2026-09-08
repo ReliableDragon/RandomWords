@@ -17,6 +17,7 @@
     drawSeq: 0,              // guards against an out-of-order draw response
     pools: [],               // every pool, as last reported by the server
     pendingSave: null,       // name awaiting a yes/no on the save form, or null
+    pendingWrite: null,      // name awaiting a yes/no on the write form, or null
     pendingCombine: null,    // body awaiting a yes/no on the combine form, or null
     pendingCommand: null,    // line awaiting a yes/no on the command line, or null
     cmdLog: [],              // {kind, text} entries shown in the command output
@@ -52,6 +53,13 @@
     saveConfirmText: document.getElementById('saveConfirmText'),
     saveConfirmYes: document.getElementById('saveConfirmYes'),
     saveConfirmNo: document.getElementById('saveConfirmNo'),
+    poolWriteForm: document.getElementById('poolWriteForm'),
+    poolWriteName: document.getElementById('poolWriteName'),
+    writeNote: document.getElementById('writeNote'),
+    writeConfirm: document.getElementById('writeConfirm'),
+    writeConfirmText: document.getElementById('writeConfirmText'),
+    writeConfirmYes: document.getElementById('writeConfirmYes'),
+    writeConfirmNo: document.getElementById('writeConfirmNo'),
     combineForm: document.getElementById('combineForm'),
     combineA: document.getElementById('combineA'),
     combineB: document.getElementById('combineB'),
@@ -761,6 +769,59 @@
 
   el.saveConfirmNo.addEventListener('click', function () {
     hideSaveConfirm();
+  });
+
+  // ---------- pools pane: write-to-disk form ----------
+
+  // Restored after a write reports its result, so the note goes back to
+  // explaining the form rather than describing whatever was last written.
+  var writeNoteDefault = el.writeNote.textContent;
+
+  el.poolWriteForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = el.poolWriteName.value.trim();
+    if (!name) return;
+    submitWrite(name, false);
+  });
+
+  // A 409 here carries `ok: true` alongside `confirm`, so apiPost's usual
+  // handling (a toast on failure) never fires for it — it comes straight
+  // through, and this is the one place that reads `confirm` off the result.
+  function submitWrite(name, force) {
+    var body = { name: name };
+    if (force) body.force = true;
+    apiPost('/api/pools/write', body).then(function (data) {
+      if (!data) return;
+      if (data.confirm) {
+        state.pendingWrite = name;
+        showWriteConfirm(data.confirm);
+        return;
+      }
+      hideWriteConfirm();
+      el.poolWriteName.value = '';
+      el.writeNote.textContent = data.message || writeNoteDefault;
+      renderPools(data.pools);
+    });
+  }
+
+  function showWriteConfirm(question) {
+    el.writeConfirmText.textContent = question;
+    el.writeConfirm.hidden = false;
+  }
+
+  function hideWriteConfirm() {
+    el.writeConfirm.hidden = true;
+    state.pendingWrite = null;
+  }
+
+  el.writeConfirmYes.addEventListener('click', function () {
+    var name = state.pendingWrite;
+    hideWriteConfirm();
+    if (name) submitWrite(name, true);
+  });
+
+  el.writeConfirmNo.addEventListener('click', function () {
+    hideWriteConfirm();
   });
 
   // ---------- pools pane: combine form ----------

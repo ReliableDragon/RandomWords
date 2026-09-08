@@ -1,5 +1,6 @@
 import argparse
 import logging
+import threading
 
 from web_server import make_server
 
@@ -10,13 +11,28 @@ DEFAULT_WORDS = 'dicts/70k_words.txt'
 # The dictionaries are the common operands and the slowest things to read, so
 # they are warmed before the first request. The books are warmed behind them,
 # because forty seconds of startup would be a bad trade but six is not.
-def warm(fm, dictionaries=True, books=True):
+#
+# The index reads the same books, so it goes on the end of that same thread
+# rather than beside it: two threads parsing the same file would each pay
+# for it in full. After the first run it is read back from disk in
+# twenty milliseconds and this costs nothing.
+def warm(fm, index=None, dictionaries=True, books=True):
   dicts = [p for p in fm.get_txts('dicts')]
   if dictionaries:
     fm.warm(dicts)
-  if books:
-    rest = [p for p in fm.get_txts() if p not in set(dicts)]
-    fm.warm_in_background(rest)
+  if not books:
+    return None
+
+  rest = [p for p in fm.get_txts() if p not in set(dicts)]
+
+  def read_then_index():
+    fm.warm(rest)
+    if index is not None:
+      index.ensure_ready()
+
+  thread = threading.Thread(target=read_then_index, name='warm', daemon=True)
+  thread.start()
+  return thread
 
 
 def main():
@@ -33,7 +49,7 @@ def main():
 
   if not args.no_warm:
     print('Reading the dictionaries...')
-    warm(server.fm)
+    warm(server.fm, server.index)
 
   session = server.sessions.for_request()
   result = session.run('load', [args.words])

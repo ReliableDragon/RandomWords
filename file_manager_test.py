@@ -231,3 +231,96 @@ class FileManagerTest(unittest.TestCase):
 
   def test_root_defaults_to_the_sources_directory(self):
     self.assertEqual(FileManager().root, os.path.realpath(file_manager.ROOT_DIR))
+
+  ###
+  ### write_path: the one place a pool name becomes a filename
+  ###
+
+  def test_write_path_accepts_ordinary_names(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      for name in ['rare', 'pool_2', 'A1']:
+        with self.subTest(name=name):
+          self.assertEqual(fm.write_path(name),
+                           os.path.join(fm.root, 'custom', f'{name}.txt'))
+
+  def test_write_path_rejects_anything_that_is_not_a_bare_name(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      for name in ['a/b', '../x', '/abs', 'a.txt', '']:
+        with self.subTest(name=name):
+          with self.assertRaises(InvalidPath):
+            fm.write_path(name)
+
+  ###
+  ### pool_exists
+  ###
+
+  def test_pool_exists_before_and_after_a_write(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      self.assertFalse(fm.pool_exists('rare'))
+      fm.write_pool('rare', ['a'])
+      self.assertTrue(fm.pool_exists('rare'))
+
+  def test_pool_exists_rejects_a_bad_name(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      with self.assertRaises(InvalidPath):
+        fm.pool_exists('a/b')
+
+  ###
+  ### write_pool
+  ###
+
+  def test_write_pool_writes_one_word_per_line_with_a_trailing_newline(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      rel = fm.write_pool('rare', ['ambergris', 'leviathan', 'mizzen'])
+      self.assertEqual(rel, 'custom/rare.txt')
+      with open(fm.resolve(rel), encoding='utf-8') as f:
+        content = f.read()
+      self.assertEqual(content, 'ambergris\nleviathan\nmizzen\n')
+
+  def test_write_pool_creates_the_custom_folder(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      self.assertFalse(os.path.isdir(os.path.join(td.root, 'custom')))
+      fm.write_pool('rare', ['a'])
+      self.assertTrue(os.path.isdir(os.path.join(td.root, 'custom')))
+
+  def test_write_pool_leaves_no_temporary_file_behind(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      rel = fm.write_pool('rare', ['a', 'b'])
+      folder = os.path.dirname(fm.resolve(rel))
+      self.assertEqual(os.listdir(folder), [os.path.basename(fm.resolve(rel))])
+
+  def test_write_pool_replaces_the_previous_contents(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      fm.write_pool('rare', ['old', 'words'])
+      fm.write_pool('rare', ['new'])
+      self.assertCountEqual(fm.get_words('custom/rare.txt'), ['new'])
+
+  def test_write_pool_reads_back_through_get_words_as_the_same_words(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      words = ['ambergris', 'civet', 'copal']
+      rel = fm.write_pool('rare', words)
+      self.assertCountEqual(fm.get_words(rel), words)
+
+  def test_write_pool_rejects_a_bad_name_before_writing_anything(self):
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      with self.assertRaises(InvalidPath):
+        fm.write_pool('a/b', ['a'])
+      self.assertFalse(os.path.exists(os.path.join(td.root, 'custom')))
+
+  @patch('tempfile.mkstemp')
+  def test_write_pool_raises_unreadable_source_when_the_write_fails(self, mock_mkstemp):
+    mock_mkstemp.side_effect = OSError('disk full')
+    with FakeDirectories() as td:
+      fm = FileManager(td.root)
+      with self.assertRaises(UnreadableSource):
+        fm.write_pool('rare', ['a'])

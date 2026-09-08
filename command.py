@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 # inventing its own phrasing.
 OVERWRITE_QUESTION = 'Alias exists. Overwrite? y/N'
 
+# The same idea for a file on disk, which is not an alias and so gets its
+# own wording rather than reusing OVERWRITE_QUESTION's.
+OVERWRITE_FILE_QUESTION = 'File exists. Overwrite? y/N'
+
 class Command():
 
 

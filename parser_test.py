@@ -22,6 +22,7 @@ DOCUMENTED_SYNTAXES = [
   ('random', 'load_rand_file'),
   ('dr', 'load_rand_dir_file'), ('dir_random', 'load_rand_dir_file'),
   ('al foo', 'alias_load'), ('alias foo a.txt', 'alias_load'),
+  ('save foo', 'save'), ('save foo bar', 'save'),
   ('gaw foo bar', 'get_alias_words'),
   ('help', 'help'),
   ('mul myth war', 'multi_folder_get_words'),
@@ -30,6 +31,9 @@ DOCUMENTED_SYNTAXES = [
   ('dump', 'dump'), ('dump all', 'dump'),
   ('quit', 'quit'), ('exit', 'quit'), ('q', 'quit'),
   ('forget spare', 'forget'), ('rm spare', 'forget'),
+  ('which whale', 'which'),
+  ('rare', 'rare'), ('rare 3', 'rare'),
+  ('like whale', 'like'), ('like whale 5', 'like'),
 ]
 
 

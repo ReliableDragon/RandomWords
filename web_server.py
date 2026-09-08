@@ -9,6 +9,7 @@ import web_routes
 
 from session import SessionStore
 from word_cache import CachingFileManager
+from word_index import WordIndex
 
 logger = logging.getLogger(__name__)
 
@@ -166,10 +167,12 @@ class Handler(BaseHTTPRequestHandler):
     logger.info('%s %s', self.address_string(), fmt % args)
 
 
-def make_server(port=0, root=None, host='127.0.0.1'):
+def make_server(port=0, root=None, host='127.0.0.1', index=None):
   fm = CachingFileManager() if root is None else CachingFileManager(root)
+  index = WordIndex(fm) if index is None else index
   server = ThreadingHTTPServer((host, port), Handler)
   server.fm = fm
-  server.sessions = SessionStore(fm)
+  server.index = index
+  server.sessions = SessionStore(fm, index)
   server.daemon_threads = True
   return server

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Callable
 
 
 # What a command hands back to whoever ran it.
@@ -31,6 +32,18 @@ class CommandResult:
 
   # Ends the session. Only the terminal front end honours it.
   quit: bool = False
+
+  # A callback for a side effect that has to wait for a yes and cannot be
+  # expressed as an `updates` merge -- writing a file, say. It takes no
+  # arguments and returns the message to report for having done it.
+  # `CommandManager.apply` calls this once, after merging `updates`, and
+  # only when `ok` is true; it is the one point a yes reaches regardless of
+  # which front end asked, so a command that sets this runs its side effect
+  # there rather than in `execute`, which may run again (harmlessly, since
+  # nothing has been confirmed yet) before an answer exists. Most commands
+  # leave this unset: merging `updates` into the context is itself the
+  # whole of what confirming them means.
+  on_confirm: Callable[[], str] | None = None
 
 
   @classmethod

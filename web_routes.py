@@ -73,12 +73,19 @@ def fail(status: int, message: str) -> Response:
 
 # Applies updates a command withheld pending a confirmation, once the
 # request has brought back a yes as `force`. Shared by every route whose
-# command can carry a `confirm` -- saving, combining, and the raw command
-# line -- so the same six lines are not retyped a third time.
+# command can carry a `confirm` -- saving, combining, writing, and the raw
+# command line -- so the same lines are not retyped a fourth time.
+#
+# The result `apply` hands back, not the one passed in, is what gets
+# returned: for most commands they are the same object, because merging
+# `updates` cannot fail. `write`'s command is the exception -- its
+# `on_confirm` callback can raise if the disk write itself fails -- and
+# using apply's own answer is what lets that failure reach the response
+# instead of being silently reported as a success.
 def apply_if_forced(req: Request, result: CommandResult) -> CommandResult:
   if result.confirm and req.body.get('force'):
-    req.session.apply(result)
-    return replace(result, confirm='')
+    applied = req.session.apply(result)
+    return replace(applied, confirm='')
   return result
 
 
@@ -163,6 +170,26 @@ def save(req: Request) -> Response:
   return from_result(result, {'pools': req.session.pools()})
 
 
+# Writes a pool to disk, under sources/custom/, so it survives a restart.
+#
+# An existing file comes back as a question, the same shape `save` uses for
+# an existing alias; the client answers by repeating the request with
+# force, which is the same yes the terminal gets from a prompt.
+def write(req: Request) -> Response:
+  name = req.body.get('name')
+  if not isinstance(name, str) or not name:
+    return fail(400, 'What should the file be called?')
+
+  pool = req.body.get('pool')
+  args = [name]
+  if isinstance(pool, str) and pool:
+    args.append(pool)
+
+  result = req.session.run('save', args)
+  result = apply_if_forced(req, result)
+  return from_result(result, {'pools': req.session.pools()})
+
+
 def forget(req: Request) -> Response:
   name = req.body.get('name')
   if not isinstance(name, str) or not name:
@@ -243,6 +270,7 @@ ROUTES = {
   ('POST', '/api/pools/load'): load,
   ('POST', '/api/pools/random'): load_random,
   ('POST', '/api/pools/save'): save,
+  ('POST', '/api/pools/write'): write,
   ('POST', '/api/pools/op'): combine,
   ('POST', '/api/draw'): draw,
   ('POST', '/api/command'): command,

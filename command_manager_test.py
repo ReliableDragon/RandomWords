@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from command_manager import CommandManager
 from command_list import CommandList
-from file_manager import FileManager
+from command_result import CommandResult
+from file_manager import FileManager, InvalidPath
 from fake_command import FakeCommand
 
 class CommandManagerTest(unittest.TestCase):
@@ -52,3 +53,56 @@ class CommandManagerTest(unittest.TestCase):
 
       self.assertEqual(cm.context, {'test_key': 24601})
       self.assertEqual(result.message, 'abcabc')
+
+  ###
+  ### apply: the one place a confirmation, from either front end, arrives
+  ###
+
+  def test_apply_merges_updates_when_there_is_no_on_confirm(self):
+    cl = MagicMock(spec=CommandList)
+    cm = CommandManager(cl, context={})
+    result = CommandResult(updates={'saved': ['a']})
+
+    applied = cm.apply(result)
+
+    self.assertEqual(cm.context, {'saved': ['a']})
+    self.assertIs(applied, result)
+
+  def test_apply_does_nothing_for_a_failed_result(self):
+    cl = MagicMock(spec=CommandList)
+    cm = CommandManager(cl, context={})
+    result = CommandResult.fail('nope')
+
+    cm.apply(result)
+
+    self.assertEqual(cm.context, {})
+
+  def test_apply_runs_on_confirm_once_the_answer_is_yes(self):
+    cl = MagicMock(spec=CommandList)
+    cm = CommandManager(cl, context={})
+    calls = []
+    def do_the_write():
+      calls.append(1)
+      return 'Wrote 3 words to custom/rare.txt.'
+    result = CommandResult(confirm='File exists. Overwrite? y/N',
+                           on_confirm=do_the_write)
+
+    applied = cm.apply(result)
+
+    self.assertEqual(calls, [1])
+    self.assertTrue(applied.ok)
+    self.assertFalse(applied.confirm)
+    self.assertEqual(applied.message, 'Wrote 3 words to custom/rare.txt.')
+
+  def test_apply_reports_a_failure_from_on_confirm(self):
+    cl = MagicMock(spec=CommandList)
+    cm = CommandManager(cl, context={})
+    def fail_the_write():
+      raise InvalidPath('bad name')
+    result = CommandResult(confirm='File exists. Overwrite? y/N',
+                           on_confirm=fail_the_write)
+
+    applied = cm.apply(result)
+
+    self.assertFalse(applied.ok)
+    self.assertEqual(applied.message, 'bad name')

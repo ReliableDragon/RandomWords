@@ -41,7 +41,7 @@ class PathSafetyTest(unittest.TestCase):
       for escape in ESCAPES:
         for template in ['load {}', 'ls {}', 'r {}', 'mul {}',
                          'al saved {}', 'd pool {} out', 'i pool {} out',
-                         'c pool {} out']:
+                         'c pool {} out', 'save {} pool']:
           line = template.format(escape)
           with self.subTest(line=line):
             result = self.run_line(tfm, line)
@@ -53,6 +53,21 @@ class PathSafetyTest(unittest.TestCase):
             self.assertFalse(
                 result.updates,
                 f'{line!r} changed the session')
+
+  # save's only path-shaped argument is the name it writes under, which
+  # write_path validates by shape rather than by resolving it, so this
+  # covers the same guarantee through that other door: every escape is
+  # still refused, and -- the thing test_no_command_can_read_outside_the_
+  # library above cannot see -- nothing ever reaches disk, not even the
+  # custom/ folder that a real write would create.
+  def test_save_cannot_write_outside_the_library(self):
+    with FakeFileManager() as tfm:
+      for escape in ESCAPES:
+        with self.subTest(escape=escape):
+          result = self.run_line(tfm, f'save {escape} pool')
+          self.assertIsNotNone(result, f'{escape!r} was not even recognised')
+          self.assertFalse(result.ok, f'{escape!r} was accepted as a name')
+      self.assertFalse(os.path.exists(os.path.join(tfm.root, 'custom')))
 
   def test_resolver_rejects_each_escape(self):
     with FakeFileManager() as tfm:

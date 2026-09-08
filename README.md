@@ -18,6 +18,7 @@ It is a personal tool for name-generation, prompts, and general wordplay.
 - [Running](#running)
 - [Concepts](#concepts)
 - [Command reference](#command-reference)
+- [Knowing the library as a whole](#knowing-the-library-as-a-whole)
 - [Path rules](#path-rules)
 - [How words are extracted](#how-words-are-extracted)
 - [The `sources/` directory](#the-sources-directory)
@@ -96,8 +97,9 @@ million word budget, so nothing is evicted in practice.
 
 The page has three columns: a library on the left, the bench in the middle,
 and pools on the right. Click a text to load it, then draw. The pools pane
-saves the active pool under a name, combines two pools with the three set
-operations, and forgets ones you are done with. A command line across the
+saves the active pool under a name, writes a pool to disk so it survives a
+restart, combines two pools with the three set operations, and forgets ones
+you are done with. A command line across the
 bottom runs the same command language the terminal does, so anything without
 a button stays reachable; `/` focuses it and the up arrow walks its history. The last twenty draws stay on screen, and clicking any
 word keeps it; kept words survive a restart in browser storage and can be
@@ -113,6 +115,7 @@ copied or exported as a one-word-per-line file.
 | `POST` | `/api/pools/load` | `{source}` | Loads a text or a saved pool |
 | `POST` | `/api/pools/random` | `{under, mode}` | Loads a random text; `mode` is `flat` or `walk` |
 | `POST` | `/api/pools/save` | `{name, from, force}` | Names the active pool, or a text |
+| `POST` | `/api/pools/write` | `{name, pool, force}` | Writes a pool to disk, as `custom/{name}.txt` |
 | `POST` | `/api/pools/op` | `{op, a, b, out}` | Union, difference or intersection |
 | `DELETE` | `/api/pools/{name}` | | Forgets a pool |
 | `POST` | `/api/draw` | `{count}` | Draws from the active pool, capped at 1000 |
@@ -225,6 +228,7 @@ Arguments in `<angle brackets>` are required, `[square brackets]` optional.
 | Command | Description |
 |---|---|
 | `al <name> [file]`, `alias`, `alias_load` | Save a pool under `name`. With a file argument, the file's words are saved; without one, the current active pool is saved. If `name` already exists you are asked `Alias exists. Overwrite? y/N`. |
+| `save <name> [pool]` | Write a pool to disk, as `custom/<name>.txt`, so it survives past this session and can be loaded again from there. With one argument, the active pool is written; with two, the named pool is. If `custom/<name>.txt` already exists you are asked `File exists. Overwrite? y/N`. |
 | `c <A> [B] [C]`, `combine` | Set **union**. See below for how one, two, and three arguments are interpreted. |
 | `d <A> [B] [C]`, `diff` | Set **difference** (words in the first pool that are not in the second). |
 | `i <A> [B] [C]`, `intersection` | Set **intersection**. |
@@ -255,6 +259,73 @@ For `diff` the order matters: `d A B` keeps the words of `A` that are not in
 `B`. So `d moby dicts/10k_words.txt rare` gives you the words of
 *Moby Dick* minus the 10,000 most common English words, saved as `rare`.
 
+## Knowing the library as a whole
+
+Every other command works on one text, or on a set operation over two of
+them. The index is the one structure that knows the whole library, and it is
+what lets a word be called rare because this library's books do not use it,
+rather than because a lexicographer left it out of a frequency list.
+
+| Command | Description |
+|---|---|
+| `which <word>` | The books that use a word, and how many of them there are. |
+| `rare [n]` | Narrow the active pool to the words appearing in at most `n` books, one by default. Composes with everything: the pool it narrows can be a book, a saved pool, or the result of a set operation. |
+| `like <word> [n]` | The words that turn up in the same books, ranked by how much the two sets of books overlap. Refuses a word in more than 25 books, because every common word keeps company with every other one. |
+
+```
+> load classics/moby_dick.txt
+> which harpooneer
+"harpooneer" is in 1 of 131 books: classics/moby_dick.txt
+> rare
+2,240 of 18,639 words are in one book.
+> 3
+shooks tormentoso unharming
+> like ambergris
+indi rad isinglass spermaceti additionally knobbed civet quintal tropic bloodshot
+```
+
+`rare` is the honest version of what `rd` approximates. `rd` subtracts a
+frequency list, so a word counts as unusual when it is missing from a
+dictionary; `rare` counts the books themselves.
+
+### What the index counts
+
+Only the books. `dicts/` and `custom/` hold word lists, and a word list is
+not a usage. Counting them wrecks the thing the index is for: `harpooneer`
+is in *Moby Dick* and in the 450k dictionary, so with the lists counted it
+looks like a word two texts share and `rare 1` drops it. Excluding them
+takes *Moby Dick*'s unique vocabulary from 1,481 words to 2,240, and
+`harpooneer` is in it.
+
+`custom/` is excluded for a second reason as well: it is where `save` writes,
+and a pool saved from a book would otherwise make that book's words look
+shared.
+
+### What it costs
+
+Nothing until you ask. The index is built the first time a command needs it,
+not at startup, so the terminal still opens instantly and a session that
+never asks about the library never pays.
+
+The first build reads the 131 books and takes about seven seconds. It is then
+written to a gitignored `.cache/` beside the program, 12.9 MB of it, and
+every run after that loads it in twenty milliseconds. Editing, adding, or
+removing a text invalidates the saved copy — it records each book's
+modification time — and the next command rebuilds it.
+
+In memory it is a flat inverted index: the vocabulary sorted once, an offset
+per word, and every posting in one array. That is about 12 MB on top of the
+words themselves, which the cache is holding anyway. The obvious first
+version, a dictionary of sets, cost 255 MB. A lookup is a binary search:
+`which` answers in microseconds, `rare` filters an 18,000-word pool in seven
+milliseconds, and `like` takes about a second, because it scores every word
+that shares a book with the one you asked about.
+
+The browser reaches all three through its command line. `serve.py` builds the
+index on the same background thread that warms the books, once those are
+read, rather than beside it: two threads parsing the same file would each pay
+for it in full.
+
 ## Path rules
 
 Every file and folder argument is a **library path**: relative to `sources/`,
@@ -278,6 +349,14 @@ is what lets commands hand it whatever the user typed.
 Filenames themselves are restricted to letters, digits, underscores and `/`,
 plus the `.txt` extension: no spaces, no hyphens, no other dots. All files in
 `sources/` follow this rule.
+
+`custom/` is the one folder anything in this tool writes to, and `save` is
+the only command that writes there. It does not take a library path at all:
+its argument is a bare pool name, the same shape `al` already requires for
+an alias (letters, digits and underscores), turned into `custom/<name>.txt`
+by `FileManager.write_path`. There is no `..` or leading `/` to guard
+against in that argument, because nothing upstream ever lets one arrive; the
+shape check exists to keep that true, not to resolve a path that escaped it.
 
 ## How words are extracted
 
@@ -309,7 +388,7 @@ the tool discovers `.txt` files recursively.
 |---|---|
 | `botany/`, `classics/`, `craft/`, `geology/`, `law_econ/`, `myth/`, `natural_history/`, `religion/`, `science/`, `war/`, `zoology/` | Project Gutenberg texts, grouped by theme (roughly 130 books). |
 | `dicts/` | Frequency word lists: `10k_words.txt`, `70k_words.txt` (the startup pool), `450k_words.txt`, one word per line, plus a three-word `test.txt`. |
-| `custom/` | Hand-written word lists, one word per line. |
+| `custom/` | Hand-written word lists, one word per line, plus anything `save` writes there. The one writable folder; see [Path rules](#path-rules). |
 
 To add a book, drop a `.txt` file into any folder. Gutenberg headers and
 footers are stripped automatically. Use only letters, digits, and underscores
@@ -322,15 +401,15 @@ Everything is in the repository root; there is no package structure.
 | File | Role |
 |---|---|
 | `book_word.py` | Entry point. Builds the objects below, loads the startup dictionary, and runs the read-eval-print loop in `RandomWords.run`. The loop catches errors so a bad command cannot end the session. |
-| `file_manager.py` | `FileManager`: all filesystem access, and stateless. Resolves library paths (`resolve`, `relative`), lists and walks folders (`ls`, `get_txts`, `rand_file`, `rand_dir`), and extracts words (`get_words`, `remove_gutenberg`). Raises `InvalidPath` for anything outside its root and `UnreadableSource` for a file it cannot read. `ROOT_DIR` is the absolute `sources/` path, derived from this file's own location. |
-| `command_result.py` | `CommandResult`: what every command returns. Carries `ok`, `message`, `data`, `updates`, `confirm` and `quit`. Commands never print, so the same command can serve a terminal or an HTTP request. |
+| `file_manager.py` | `FileManager`: all filesystem access, and stateless. Resolves library paths (`resolve`, `relative`), lists and walks folders (`ls`, `get_txts`, `rand_file`, `rand_dir`), and extracts words (`get_words`, `remove_gutenberg`). Also the one place anything gets written: `write_path`, `pool_exists`, and `write_pool` turn a bare pool name into a file under `custom/` and write it atomically. Raises `InvalidPath` for anything outside its root or not a valid pool name, and `UnreadableSource` for a file it cannot read or write. `ROOT_DIR` is the absolute `sources/` path, derived from this file's own location. |
+| `command_result.py` | `CommandResult`: what every command returns. Carries `ok`, `message`, `data`, `updates`, `confirm`, `quit`, and `on_confirm`, a callback for a side effect (such as a file write) that must wait for a yes. Commands never print, so the same command can serve a terminal or an HTTP request. |
 | `command.py` | `Command` base class: `cmd_name()`, `cmd_args()`, `matches(line)`, `parse_args(line)`, `execute(args, context)`, `overview()`. The default `matches` builds a regex from the name and argument list; most commands override it to add short aliases. |
 | `file_command.py` | `FileCommand`: a `Command` that holds a `FileManager`. |
 | `set_op_cmd.py` | `SetOpCommand`: shared argument handling for `combine`, `diff`, and `intersection`; subclasses supply `aliases()` and `set_operation(s1, s2)`. |
 | `arg.py` | `Arg`: a typed, optionally optional/repeated argument description used for validation and help text. |
 | `*_cmd.py` | One file per command (see the table below). |
 | `command_list.py` | `CommandList`: constructs every command instance (`cmd_list`) and holds the name → command registry. Registration order is the order the parser tries matches in. |
-| `command_manager.py` | `CommandManager`: owns the context. `execute` runs a command, pops a `result` key from what it returns, and merges the rest into the context. |
+| `command_manager.py` | `CommandManager`: owns the context. `execute` runs a command and merges `updates`/`removes` into the context. `apply` is where a confirmed yes lands, from either front end: it merges `updates`, then runs `on_confirm` if the command left one, which is how a command whose confirmation is not just a context merge -- `save`, writing a file -- does its side effect only once the answer is known. |
 | `word_cache.py` | `CachingFileManager`: a `FileManager` that remembers what it has read, keyed by path and modification time and bounded by total words. The terminal does not need it; a browser does. |
 | `session.py` | `Session`, one person's pools and the commands that change them, and `SessionStore`, the one place identity would go. |
 | `web_routes.py` | Route handlers, as plain functions from a request to a status and a payload, so the transport can be swapped without touching them. |
@@ -348,6 +427,7 @@ Command classes:
 | `load_rand_file_cmd.py` | `LoadRandFile` | `r` |
 | `load_rand_dir_file_cmd.py` | `LoadRandDirFile` | `dr` |
 | `alias_load_cmd.py` | `AliasLoad` | `al` |
+| `save_cmd.py` | `Save` | `save` |
 | `get_alias_words_cmd.py` | `GetAliasWords` | `gaw` |
 | `multi_folder_get_words_cmd.py` | `MultiFolderGetWords` | `mul` |
 | `combine_cmd.py` / `diff_cmd.py` / `intersection_cmd.py` | `Combine` / `Diff` / `Intersection` | `c` / `d` / `i` |
@@ -374,7 +454,11 @@ Command classes:
    cannot change the session. It hands the result back.
 5. The front end decides what to do with it. The terminal prints `message`,
    asks `confirm` and calls `CommandManager.apply` on a yes, and stops on
-   `quit`. An HTTP handler would serialise `message` and `data` instead.
+   `quit`. An HTTP handler would serialise `message` and `data` instead; a
+   409 is how it asks `confirm` and the browser answers with `force`, which
+   also ends up calling `apply`. Either way, `apply` is where an `on_confirm`
+   callback runs, for a command whose confirmation is a side effect rather
+   than just a context merge.
 
 ### Adding a command
 
