@@ -1,6 +1,5 @@
 import re
 import logging
-import itertools
 
 logger = logging.getLogger(__name__)
 
@@ -19,21 +18,14 @@ class Command():
 
   def __init__(self):
     self.name = self.cmd_name()
-    self.args = self.cmd_args()
 
 
   @classmethod
-  def create(cls, name, args_):
+  def create(cls, name):
     new_cmd = cls()
     new_cmd.name = name
-    new_cmd.args = args_
     return new_cmd
 
-
-  def validate_args(self, values: list):
-    for value, arg in itertools.zip_longest(values, self.args):
-      if arg is None or not arg.validate(value):
-        raise ValueError(f"Got incorrect arg type(s)!\nExpected: {[str(arg) for arg in self.args]}\nBut was: {[type(v) for v in values]}")
 
   def check_match(self, regex, line):
     line = line.lower()
@@ -43,32 +35,23 @@ class Command():
     else:
       return True
 
-  # Determine whether this command is being invoked. If this method
-  # is not overridden, defaults to the command's name plus space-separated arguments.
+  # Determine whether this command is being invoked. The default accepts
+  # only the bare command word, with no arguments and no aliases. A command
+  # whose syntax is richer than that -- an argument, a short alias, a
+  # "bare" form -- overrides this itself, so that a reader finds the
+  # accepted syntax in the command's own file rather than assembled from a
+  # separate argument description.
   def matches(self, line):
-    regex = self.name
-    for arg in self.args:
-      if arg.optional:
-        regex += r'( [^ ]+)?'
-      else:
-        regex += r' [^ ]+'
-    return self.check_match(regex, line)
+    return self.check_match(self.name, line)
 
   def parse_args(self, line):
-    if not self.args:
-      return []
-    return line.split(' ')[1:]
+    return line.strip().split(' ')[1:]
 
-  # A one-line usage summary for 'help'. Commands with aliases or a
-  # non-standard syntax override this.
+  # A one-line usage summary for 'help'. The default is just the bare
+  # command word; a command that takes arguments overrides this for a more
+  # useful line.
   def overview(self):
-    parts = [self.name]
-    for arg in self.args or []:
-      name = arg.type.__name__
-      if arg.repeated:
-        name += '...'
-      parts.append(f'[{name}]' if arg.optional else f'<{name}>')
-    return ' '.join(parts)
+    return self.name
 
   def execute(self, args_, context):
     pass
@@ -77,10 +60,6 @@ class Command():
   def cmd_name():
     pass
 
-  @staticmethod
-  def cmd_args():
-    pass
-
 
   def __str__(self):
-    return f"Command({self.name}){[str(arg) for arg in self.args]}"
+    return f"Command({self.name})"

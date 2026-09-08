@@ -3,7 +3,6 @@ import re
 from file_command import FileCommand
 from command import OVERWRITE_QUESTION
 from command_result import CommandResult
-from arg import Arg
 from file_manager import UnreadableSource
 
 # Re-exported so `alias_load_cmd.OVERWRITE_QUESTION` still resolves; the
@@ -19,10 +18,6 @@ class AliasLoad(FileCommand):
   @staticmethod
   def cmd_name():
     return 'alias_load'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str), Arg(str, optional=True)]
 
   def overview(self):
     return 'alias_load [alias, al] <name> [file.txt]'

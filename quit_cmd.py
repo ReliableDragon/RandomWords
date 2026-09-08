@@ -7,10 +7,6 @@ class Quit(Command):
   def cmd_name():
     return 'quit'
 
-  @staticmethod
-  def cmd_args():
-    return []
-
   def overview(self):
     return 'quit [exit, q]'
 

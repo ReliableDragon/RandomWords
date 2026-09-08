@@ -67,6 +67,21 @@ def note_saved_pool(session, result: CommandResult) -> None:
                       data['saved_from'] or session.sources.get('words'))
 
 
+# Records where the active pool came from when a command replaced it.
+#
+# The named routes do this for themselves, but the command language reaches
+# the same commands without passing through them, and a `load` typed there
+# left the page naming the pool it had replaced. Only a command that reports
+# a source updates the label: `rare` narrows a book without changing which
+# book it is, so it leaves the name alone rather than clearing it.
+def note_loaded_pool(session, result: CommandResult) -> None:
+  if not result.ok or result.confirm or 'words' not in result.updates:
+    return
+  source = (result.data or {}).get('source')
+  if source:
+    session.note_source('words', session.sources.get(source, source))
+
+
 def fail(status: int, message: str) -> Response:
   return Response(status, {'ok': False, 'message': message})
 
@@ -255,6 +270,7 @@ def command(req: Request) -> Response:
     return fail(400, 'There is no session to quit here. Close the tab.')
 
   note_saved_pool(req.session, result)
+  note_loaded_pool(req.session, result)
   return from_result(result, {'pools': req.session.pools()})
 
 

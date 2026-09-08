@@ -1,6 +1,5 @@
 import os
 
-from arg import Arg
 from file_command import FileCommand
 from command_result import CommandResult
 
@@ -9,10 +8,6 @@ class LS(FileCommand):
   @staticmethod
   def cmd_name():
     return 'ls'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str, optional=True)]
 
   def overview(self):
     return 'ls [folder]'
@@ -27,7 +22,6 @@ class LS(FileCommand):
   # Lists a folder of the library, or the root when none is given. Shows the
   # bare name of each entry, with a trailing slash on folders.
   def execute(self, args_, _):
-    super().validate_args(args_)
     path = args_[0] if args_ else ''
 
     results = self.fm.ls(path)

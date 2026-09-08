@@ -403,14 +403,15 @@ Everything is in the repository root; there is no package structure.
 | `book_word.py` | Entry point. Builds the objects below, loads the startup dictionary, and runs the read-eval-print loop in `RandomWords.run`. The loop catches errors so a bad command cannot end the session. |
 | `file_manager.py` | `FileManager`: all filesystem access, and stateless. Resolves library paths (`resolve`, `relative`), lists and walks folders (`ls`, `get_txts`, `rand_file`, `rand_dir`), and extracts words (`get_words`, `remove_gutenberg`). Also the one place anything gets written: `write_path`, `pool_exists`, and `write_pool` turn a bare pool name into a file under `custom/` and write it atomically. Raises `InvalidPath` for anything outside its root or not a valid pool name, and `UnreadableSource` for a file it cannot read or write. `ROOT_DIR` is the absolute `sources/` path, derived from this file's own location. |
 | `command_result.py` | `CommandResult`: what every command returns. Carries `ok`, `message`, `data`, `updates`, `confirm`, `quit`, and `on_confirm`, a callback for a side effect (such as a file write) that must wait for a yes. Commands never print, so the same command can serve a terminal or an HTTP request. |
-| `command.py` | `Command` base class: `cmd_name()`, `cmd_args()`, `matches(line)`, `parse_args(line)`, `execute(args, context)`, `overview()`. The default `matches` builds a regex from the name and argument list; most commands override it to add short aliases. |
+| `command.py` | `Command` base class: `cmd_name()`, `matches(line)`, `parse_args(line)`, `execute(args, context)`, `overview()`. The default `matches` accepts the bare command word and nothing else, so any command taking arguments states its own syntax as a regex. That regex is the real validation: there is no separate type check, and there used to be one that could not work. Also holds `OVERWRITE_QUESTION` and `OVERWRITE_FILE_QUESTION`, the two wordings shared by everything that asks before replacing something. |
 | `file_command.py` | `FileCommand`: a `Command` that holds a `FileManager`. |
 | `set_op_cmd.py` | `SetOpCommand`: shared argument handling for `combine`, `diff`, and `intersection`; subclasses supply `aliases()` and `set_operation(s1, s2)`. |
-| `arg.py` | `Arg`: a typed, optionally optional/repeated argument description used for validation and help text. |
 | `*_cmd.py` | One file per command (see the table below). |
 | `command_list.py` | `CommandList`: constructs every command instance (`cmd_list`) and holds the name → command registry. Registration order is the order the parser tries matches in. |
 | `command_manager.py` | `CommandManager`: owns the context. `execute` runs a command and merges `updates`/`removes` into the context. `apply` is where a confirmed yes lands, from either front end: it merges `updates`, then runs `on_confirm` if the command left one, which is how a command whose confirmation is not just a context merge -- `save`, writing a file -- does its side effect only once the answer is known. |
 | `word_cache.py` | `CachingFileManager`: a `FileManager` that remembers what it has read, keyed by path and modification time and bounded by total words. The terminal does not need it; a browser does. |
+| `word_index.py` | `WordIndex`: which texts each word appears in, as a flat inverted index -- sorted vocabulary, an offset per word, every posting in one array. Built on first use rather than at startup, saved beside the library, and rebuilt when a text changes. Counts books only; `NOT_BOOKS` says why. |
+| `index_command.py` | `IndexCommand`: a `Command` that holds the index, the way `FileCommand` holds the file manager. |
 | `session.py` | `Session`, one person's pools and the commands that change them, and `SessionStore`, the one place identity would go. |
 | `web_routes.py` | Route handlers, as plain functions from a request to a status and a payload, so the transport can be swapped without touching them. |
 | `web_server.py` | The standard-library HTTP server, the origin checks, and static file serving from a fixed table. |
@@ -428,6 +429,9 @@ Command classes:
 | `load_rand_dir_file_cmd.py` | `LoadRandDirFile` | `dr` |
 | `alias_load_cmd.py` | `AliasLoad` | `al` |
 | `save_cmd.py` | `Save` | `save` |
+| `which_cmd.py` | `Which` | `which` |
+| `rare_cmd.py` | `Rare` | `rare` |
+| `like_cmd.py` | `Like` | `like` |
 | `get_alias_words_cmd.py` | `GetAliasWords` | `gaw` |
 | `multi_folder_get_words_cmd.py` | `MultiFolderGetWords` | `mul` |
 | `combine_cmd.py` / `diff_cmd.py` / `intersection_cmd.py` | `Combine` / `Diff` / `Intersection` | `c` / `d` / `i` |
@@ -463,8 +467,10 @@ Command classes:
 ### Adding a command
 
 1. Create `my_cmd.py` with a class extending `Command` (or `FileCommand` if
-   it needs the filesystem). Implement `cmd_name`, `cmd_args`, and `execute`;
-   override `matches` and `parse_args` if you want aliases or a non-standard
+   it needs the filesystem, or `IndexCommand` if it needs the library index).
+   Implement `cmd_name` and `execute`. The default `matches` accepts only the
+   bare command word, so override it with a regex for anything that takes an
+   argument or answers to a short alias, `parse_args` for a non-standard
    syntax, and `overview` for a friendlier `help` line.
 2. Return a `CommandResult` from `execute`, never a bare dict and never
    `None`. Use `CommandResult.fail(message)` for a user error.
@@ -489,7 +495,7 @@ python3 -m unittest discover -p '*_test.py'
 The pattern is required because the tests are named `*_test.py`, which the
 default discovery pattern (`test*.py`) does not match.
 
-There are 207 tests and they all pass. Files named `fake_*.py`
+There are 353 tests and they all pass. Files named `fake_*.py`
 (`fake_command.py`, `fake_directories.py`, `fake_file_manager.py`) are test
 doubles, not test cases. Tests that touch the filesystem build a temporary
 directory tree through `FakeDirectories` / `FakeFileManager` rather than
@@ -527,8 +533,6 @@ beyond `ruff` itself; the tool and its tests stay standard-library only.
   450k dictionary takes about a quarter of a second each time. The server
   caches, the terminal deliberately does not, because a person types slower
   than a parse.
-- `Command.validate_args` can only ever check `str` arguments, because
-  `parse_args` yields strings for every command except `get_word`.
 - Sampling is uniform over distinct spellings, not over occurrences, so rare
   words are as likely as common ones. That is usually the point, but it is
   worth knowing.

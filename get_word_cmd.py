@@ -2,17 +2,12 @@ import random
 
 from command import Command
 from command_result import CommandResult
-from arg import Arg
 
 class GetWord(Command):
 
   @staticmethod
   def cmd_name():
     return 'get_word'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(int, optional=True)]
 
   def overview(self):
     return 'get_word: "word", "next", a number, or an empty line'

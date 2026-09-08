@@ -1,4 +1,3 @@
-from arg import Arg
 from command import Command
 from command_result import CommandResult
 
@@ -9,10 +8,6 @@ class Forget(Command):
   @staticmethod
   def cmd_name():
     return 'forget'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str)]
 
   def overview(self):
     return 'forget [rm] <alias>'

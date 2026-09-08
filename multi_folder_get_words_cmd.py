@@ -2,7 +2,6 @@ import random
 import logging
 
 from file_command import FileCommand
-from arg import Arg
 from command_result import CommandResult
 from file_manager import UnreadableSource
 
@@ -13,10 +12,6 @@ class MultiFolderGetWords(FileCommand):
   @staticmethod
   def cmd_name():
     return 'multi_folder_get_words'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str, repeated=True)]
 
   def overview(self):
     return 'multi_folder_get_words [mfgw, mul] {folder, file.txt or alias}+'

@@ -2,7 +2,6 @@ import logging
 
 from file_command import FileCommand
 from command import OVERWRITE_QUESTION
-from arg import Arg
 from command_result import CommandResult
 from file_manager import UnreadableSource
 
@@ -15,10 +14,6 @@ class SetOpCommand(FileCommand):
 
   def set_operation(self, s1, s2):
     pass
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str), Arg(str, optional=True), Arg(str, optional=True)]
 
   def overview(self):
     name = self.aliases()[0]

@@ -1,4 +1,3 @@
-from arg import Arg
 from command_result import CommandResult
 from index_command import IndexCommand
 
@@ -11,10 +10,6 @@ class Rare(IndexCommand):
   @staticmethod
   def cmd_name():
     return 'rare'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str, optional=True)]
 
   def overview(self):
     return 'rare [n]: keep the active pool\'s words that are in at most n books (default 1)'

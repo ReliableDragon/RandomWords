@@ -1,6 +1,5 @@
 import logging
 
-from arg import Arg
 from command import Command
 from command_result import CommandResult
 
@@ -16,10 +15,6 @@ class RandDiff(Command):
   def cmd_name():
     return 'rand_diff'
 
-  @staticmethod
-  def cmd_args():
-    return [Arg(str, optional=True)]
-
   def overview(self):
     return 'rand_diff [rd] [10|70|450]'
 
@@ -30,7 +25,6 @@ class RandDiff(Command):
   # Loads a random file and subtracts a common-words dictionary from it,
   # leaving only that book's unusual words as the active pool.
   def execute(self, args_, context):
-    super().validate_args(args_)
     to_diff = args_[0] if args_ else '70'
     dict_path = f'dicts/{to_diff}k_words.txt'
 
@@ -45,7 +39,11 @@ class RandDiff(Command):
     # This command runs two others without a front end between them, so the
     # inner load's message has nowhere to go unless it is carried out here.
     messages = [m for m in (loaded.message, result.message) if m]
+    # The diff describes the result; only the inner load knows which book it
+    # came from, so that is carried out too.
+    data = dict(result.data or {})
+    data.setdefault('source', (loaded.data or {}).get('source'))
     return CommandResult(ok=result.ok,
                          message='\n'.join(messages),
-                         data=result.data,
+                         data=data,
                          updates=result.updates)

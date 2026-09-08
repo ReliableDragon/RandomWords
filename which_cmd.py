@@ -1,4 +1,3 @@
-from arg import Arg
 from command_result import CommandResult
 from index_command import IndexCommand
 
@@ -12,10 +11,6 @@ class Which(IndexCommand):
   @staticmethod
   def cmd_name():
     return 'which'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str)]
 
   def overview(self):
     return 'which <word>: the books that use a word'

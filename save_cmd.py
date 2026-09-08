@@ -1,4 +1,3 @@
-from arg import Arg
 from command import OVERWRITE_FILE_QUESTION
 from command_result import CommandResult
 from file_command import FileCommand
@@ -13,19 +12,16 @@ class Save(FileCommand):
   def cmd_name():
     return 'save'
 
-  @staticmethod
-  def cmd_args():
-    return [Arg(str), Arg(str, optional=True)]
-
   def overview(self):
     return 'save <name> [pool]: write a pool to disk, as custom/<name>.txt'
 
-  # No override of matches/parse_args: the base class's default -- "save"
-  # followed by one or two space-separated tokens -- is exactly this
-  # command's syntax. The name is not given a tighter pattern here, because
-  # it is not validated as syntax at all; FileManager.write_path is what
-  # decides whether it can be a filename, with a message aimed at whoever
-  # typed it rather than a silent "I don't understand" from the parser.
+  # "save" followed by one or two space-separated tokens. The name is not
+  # given a tighter pattern here, because it is not validated as syntax at
+  # all; FileManager.write_path is what decides whether it can be a
+  # filename, with a message aimed at whoever typed it rather than a silent
+  # "I don't understand" from the parser.
+  def matches(self, line):
+    return self.check_match(r'save [^ ]+( [^ ]+)?', line)
 
   def execute(self, args_, context):
     name = args_[0]

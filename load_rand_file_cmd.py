@@ -3,7 +3,6 @@ import logging
 from file_command import FileCommand
 from file_manager import UnreadableSource
 from command_result import CommandResult
-from arg import Arg
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +11,6 @@ class LoadRandFile(FileCommand):
   @staticmethod
   def cmd_name():
     return 'load_rand_file'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str, optional=True)]
 
   def overview(self):
     return 'load_rand_file [r, rand, random] [folder]'

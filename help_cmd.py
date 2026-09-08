@@ -15,9 +15,12 @@ class Help(Command):
   def cmd_name():
     return 'help'
 
-  @staticmethod
-  def cmd_args():
-    return []
+  # No arguments and no aliases: 'help' is the only spelling. This is also
+  # what the base class's default matches() would give a zero-argument
+  # command, but it is spelled out here so the syntax is visible without
+  # having to go read the base class.
+  def matches(self, line):
+    return self.check_match('help', line)
 
   def execute(self, args_, context):
     output = ''

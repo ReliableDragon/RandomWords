@@ -1,4 +1,3 @@
-from arg import Arg
 from command_result import CommandResult
 from file_command import FileCommand
 from file_manager import UnreadableSource
@@ -8,10 +7,6 @@ class Load(FileCommand):
   @staticmethod
   def cmd_name():
     return 'load'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str)]
 
   def overview(self):
     return 'load <file.txt or alias>  (a bare path ending in .txt works too)'
@@ -46,4 +41,8 @@ class Load(FileCommand):
 
     if not words:
       return CommandResult.fail(f'No words found in {source}; keeping the current pool.')
-    return CommandResult(updates={'words': words}, data={'size': len(words)})
+    # The source travels with the result so a front end can name the pool.
+    # Without it a load typed at the command line left the page still
+    # naming whatever had been loaded by button before it.
+    return CommandResult(updates={'words': words},
+                         data={'size': len(words), 'source': source})

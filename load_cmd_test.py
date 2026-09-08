@@ -15,7 +15,8 @@ class LoadTest(unittest.TestCase):
 
       self.assertTrue('words' in result.updates)
       self.assertCountEqual(result.updates['words'], ['a', 'b', 'c'])
-      self.assertEqual(result.data, {'size': 3})
+      # The source travels with the result so a front end can name the pool.
+      self.assertEqual(result.data, {'size': 3, 'source': tfm.td.tf1_path})
 
   def test_execute_context(self):
     with FakeFileManager() as tfm:
@@ -24,6 +25,9 @@ class LoadTest(unittest.TestCase):
 
       self.assertTrue('words' in result.updates)
       self.assertCountEqual(result.updates['words'], ['1', '2', '3'])
+      # An alias names itself as the source; the route resolves it to
+      # whatever that alias was originally read from.
+      self.assertEqual(result.data['source'], 'yanoo')
 
   def test_matches(self):
     fm = MagicMock(spec=FileManager)

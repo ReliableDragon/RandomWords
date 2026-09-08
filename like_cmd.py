@@ -1,4 +1,3 @@
-from arg import Arg
 from command_result import CommandResult
 from index_command import IndexCommand
 
@@ -12,10 +11,6 @@ class Like(IndexCommand):
   @staticmethod
   def cmd_name():
     return 'like'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str), Arg(str, optional=True)]
 
   def overview(self):
     return 'like <word> [n]: words that appear in the same books'

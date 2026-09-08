@@ -3,7 +3,6 @@ import random
 
 from command import Command
 from command_result import CommandResult
-from arg import Arg
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +13,6 @@ class GetAliasWords(Command):
   @staticmethod
   def cmd_name():
     return 'get_alias_words'
-
-  @staticmethod
-  def cmd_args():
-    return [Arg(str, repeated=True)]
 
   def overview(self):
     return 'get_alias_words [gaw] {alias or r}+'

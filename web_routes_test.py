@@ -151,6 +151,25 @@ class WebRoutesTest(unittest.TestCase):
     self.assertEqual(response.status, 200)
     self.assertIn('words', self.session.context)
 
+  def test_command_load_names_the_pool_it_loaded(self):
+    # A load through a named route already recorded its source; one typed at
+    # the command line used to leave the page naming the previous pool.
+    self.go('POST', '/api/pools/load', body={'source': self.td.td.tf1_path})
+    response = self.go('POST', '/api/command',
+                       body={'line': f'load {self.td.td.tf4_path}'})
+    self.assertEqual(response.status, 200)
+    active = [p for p in response.payload['pools'] if p['active']][0]
+    self.assertEqual(active['source'], self.td.td.tf4_path)
+
+  def test_command_that_reports_no_source_leaves_the_name_alone(self):
+    # `rare` and the set operations narrow a pool without changing which
+    # text it came from, so they must not blank the label either.
+    self.go('POST', '/api/pools/load', body={'source': self.td.td.tf1_path})
+    self.go('POST', '/api/command', body={'line': 'dump'})
+    pools = self.go('GET', '/api/pools').payload['pools']
+    active = [p for p in pools if p['active']][0]
+    self.assertEqual(active['source'], self.td.td.tf1_path)
+
   def test_command_refuses_quit(self):
     for line in ['quit', 'exit', 'q']:
       with self.subTest(line=line):

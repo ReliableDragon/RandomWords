@@ -12,10 +12,6 @@ class LoadRandDirFile(FileCommand):
   def cmd_name():
     return 'load_rand_dir_file'
 
-  @staticmethod
-  def cmd_args():
-    return []
-
   def overview(self):
     return 'load_rand_dir_file [dr, drand, dir_random]'
 
