@@ -1,0 +1,25 @@
+# This codebase is indented with 2 spaces as a deliberate house style (see
+# README.md's "Architecture" conventions), not 4. ruff's own formatter and
+# its pycodestyle indentation/whitespace rules (E1xx, W2xx, ...) both assume
+# 4-space PEP 8 layout, so both are left off here: this config is a linter
+# for bugs, not a reformatter, and it must never ask for a repo-wide
+# reindent. Run `ruff check .`, never `ruff format`.
+
+target-version = "py310"
+
+[lint]
+# F (pyflakes): unused imports, unused variables, undefined names,
+# `== None` / `!= None` comparisons, and the like. These are genuine bugs,
+# not style opinions, and this is the same class of finding the project's
+# own code review (REVIEW.md) already found and fixed by hand.
+#
+# The rest are bug-pattern checks added because they pass cleanly on this
+# codebase as it stands, with no restyling needed:
+# B    (flake8-bugbear): common bug patterns such as mutable default
+#      arguments and loop variables misused after the loop.
+# PIE  (flake8-pie): misc anti-patterns, e.g. unnecessary `pass`.
+# ISC  (flake8-implicit-str-concat): catches accidental string
+#      concatenation from a missing comma, e.g. in a list literal.
+# A    (flake8-builtins): catches shadowing a builtin name like `list`
+#      or `id`.
+select = ["F", "B", "PIE", "ISC", "A"]

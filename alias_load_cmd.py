@@ -1,11 +1,14 @@
 import re
 
 from file_command import FileCommand
+from command import OVERWRITE_QUESTION
 from command_result import CommandResult
 from arg import Arg
 from file_manager import UnreadableSource
 
-OVERWRITE_QUESTION = 'Alias exists. Overwrite? y/N'
+# Re-exported so `alias_load_cmd.OVERWRITE_QUESTION` still resolves; the
+# string itself lives in command.py, the base class both this command and
+# the set operations descend from.
 
 # What the command language can spell. An API caller reaches execute()
 # without passing the syntax, so the rule lives here rather than in matches().

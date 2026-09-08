@@ -4,6 +4,12 @@ import itertools
 
 logger = logging.getLogger(__name__)
 
+# Shared wording for any command that withholds an overwrite pending a yes.
+# It lives here, on the base class every command descends from, so that
+# alias_load and the set operations ask the same question rather than each
+# inventing its own phrasing.
+OVERWRITE_QUESTION = 'Alias exists. Overwrite? y/N'
+
 class Command():
 
 

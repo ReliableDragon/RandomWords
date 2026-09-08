@@ -71,6 +71,17 @@ def fail(status: int, message: str) -> Response:
   return Response(status, {'ok': False, 'message': message})
 
 
+# Applies updates a command withheld pending a confirmation, once the
+# request has brought back a yes as `force`. Shared by every route whose
+# command can carry a `confirm` -- saving, combining, and the raw command
+# line -- so the same six lines are not retyped a third time.
+def apply_if_forced(req: Request, result: CommandResult) -> CommandResult:
+  if result.confirm and req.body.get('force'):
+    req.session.apply(result)
+    return replace(result, confirm='')
+  return result
+
+
 ###
 ### Routes
 ###
@@ -146,10 +157,7 @@ def save(req: Request) -> Response:
     args.append(source)
 
   result = req.session.run('alias_load', args)
-
-  if result.confirm and req.body.get('force'):
-    req.session.apply(result)
-    result = replace(result, confirm='')
+  result = apply_if_forced(req, result)
 
   note_saved_pool(req.session, result)
   return from_result(result, {'pools': req.session.pools()})
@@ -164,6 +172,9 @@ def forget(req: Request) -> Response:
 
 
 # Union, difference or intersection of two pools into a third.
+#
+# An `out` that already names a pool other than the first operand comes
+# back as a question rather than being overwritten, the same as `save`.
 def combine(req: Request) -> Response:
   operation = req.body.get('op')
   if operation not in OPERATIONS:
@@ -182,6 +193,7 @@ def combine(req: Request) -> Response:
     args.append(out)
 
   result = req.session.run(OPERATIONS[operation], args)
+  result = apply_if_forced(req, result)
   return from_result(result, {'pools': req.session.pools()})
 
 
@@ -208,10 +220,7 @@ def command(req: Request) -> Response:
     return fail(400, 'What command should I run?')
 
   result = req.session.run_line(line)
-
-  if result.confirm and req.body.get('force'):
-    req.session.apply(result)
-    result = replace(result, confirm='')
+  result = apply_if_forced(req, result)
 
   if result.quit:
     # There is no session here to end, and a quit must never reach the

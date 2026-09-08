@@ -1,6 +1,7 @@
 import logging
 
 from file_command import FileCommand
+from command import OVERWRITE_QUESTION
 from arg import Arg
 from command_result import CommandResult
 from file_manager import UnreadableSource
@@ -58,13 +59,26 @@ class SetOpCommand(FileCommand):
     try:
       w1 = self._get_words(n1, context)
       if not w1:
-        return CommandResult()
+        return CommandResult.fail(f'"{n1}" has no words; nothing changed.')
       w2 = self._get_words(n2, context)
       if not w2:
-        return CommandResult()
+        return CommandResult.fail(f'"{n2}" has no words; nothing changed.')
     except UnreadableSource as e:
       return CommandResult.fail(str(e))
 
     words = sorted(self.set_operation(set(w1), set(w2)))
     name = n3 if n3 is not None else n1
-    return CommandResult(updates={name: words}, data={'pool': name, 'size': len(words)})
+    updates = {name: words}
+    data = {'pool': name, 'size': len(words)}
+
+    # The one- and two-argument forms always write back to the active pool
+    # or to the first operand, and that overwrite is the documented meaning
+    # of those forms, not a mistake to guard against. Naming the first
+    # operand as the explicit third argument is just those forms spelled
+    # out, so it does not ask either. Only a third argument that names some
+    # other pool that already exists needs a yes first, the same way
+    # alias_load asks before it overwrites.
+    if n3 is not None and n3 != n1 and n3 in context:
+      return CommandResult(updates=updates, data=data, confirm=OVERWRITE_QUESTION)
+
+    return CommandResult(updates=updates, data=data)

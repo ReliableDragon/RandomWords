@@ -17,6 +17,7 @@
     drawSeq: 0,              // guards against an out-of-order draw response
     pools: [],               // every pool, as last reported by the server
     pendingSave: null,       // name awaiting a yes/no on the save form, or null
+    pendingCombine: null,    // body awaiting a yes/no on the combine form, or null
     pendingCommand: null,    // line awaiting a yes/no on the command line, or null
     cmdLog: [],              // {kind, text} entries shown in the command output
     cmdHistory: [],          // lines run this session, oldest first
@@ -56,6 +57,10 @@
     combineB: document.getElementById('combineB'),
     combineOp: document.getElementById('combineOp'),
     combineOut: document.getElementById('combineOut'),
+    combineConfirm: document.getElementById('combineConfirm'),
+    combineConfirmText: document.getElementById('combineConfirmText'),
+    combineConfirmYes: document.getElementById('combineConfirmYes'),
+    combineConfirmNo: document.getElementById('combineConfirmNo'),
     cmdForm: document.getElementById('cmdForm'),
     cmdInput: document.getElementById('cmdInput'),
     cmdOutput: document.getElementById('cmdOutput'),
@@ -768,11 +773,45 @@
     var body = { op: el.combineOp.value, a: a, b: b };
     var out = el.combineOut.value.trim();
     if (out) body.out = out;
+    submitCombine(body, false);
+  });
+
+  // A 409 here carries `ok: true` alongside `confirm`, so apiPost's usual
+  // handling (a toast on failure) never fires for it — it comes straight
+  // through, and this is the one place that reads `confirm` off the result.
+  function submitCombine(body, force) {
+    if (force) body.force = true;
     apiPost('/api/pools/op', body).then(function (data) {
       if (!data) return;
+      if (data.confirm) {
+        state.pendingCombine = body;
+        showCombineConfirm(data.confirm);
+        return;
+      }
+      hideCombineConfirm();
       el.combineOut.value = '';
       renderPools(data.pools);
     });
+  }
+
+  function showCombineConfirm(question) {
+    el.combineConfirmText.textContent = question;
+    el.combineConfirm.hidden = false;
+  }
+
+  function hideCombineConfirm() {
+    el.combineConfirm.hidden = true;
+    state.pendingCombine = null;
+  }
+
+  el.combineConfirmYes.addEventListener('click', function () {
+    var body = state.pendingCombine;
+    hideCombineConfirm();
+    if (body) submitCombine(body, true);
+  });
+
+  el.combineConfirmNo.addEventListener('click', function () {
+    hideCombineConfirm();
   });
 
   // ---------- busy state ----------

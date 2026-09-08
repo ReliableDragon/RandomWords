@@ -316,6 +316,37 @@ class WebRoutesTest(unittest.TestCase):
       with self.subTest(body=body):
         self.assertEqual(self.go('POST', '/api/pools/op', body=body).status, 400)
 
+  def test_combine_onto_an_existing_out_asks_first(self):
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'b', 'from': self.td.td.tf4_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'out', 'from': self.td.td.tf5_path})
+
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'union', 'a': 'a', 'b': 'b', 'out': 'out'})
+
+    self.assertEqual(response.status, 409)
+    self.assertIn('Overwrite', response.payload['confirm'])
+    self.assertCountEqual(self.session.context['out'], ['five'])
+
+  def test_combine_onto_an_existing_out_with_force_replaces(self):
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'b', 'from': self.td.td.tf4_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'out', 'from': self.td.td.tf5_path})
+
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'union', 'a': 'a', 'b': 'b', 'out': 'out',
+                             'force': True})
+
+    self.assertEqual(response.status, 200)
+    self.assertNotIn('confirm', response.payload)
+    self.assertEqual(len(self.session.context['out']), 6)
+
   def test_command_with_force_answers_the_question(self):
     self.load_a_text()
     self.go('POST', '/api/command', body={'line': 'al kept'})

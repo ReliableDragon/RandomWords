@@ -216,7 +216,7 @@ Arguments in `<angle brackets>` are required, `[square brackets]` optional.
 | Command | Description |
 |---|---|
 | `word`, `next`, *(empty line)* | Print one random word from the active pool. |
-| `<N>` (a number) | Print `N` random words from the active pool on one line. |
+| `<N>` (a number) | Print `N` random words from the active pool on one line, drawn without replacement so they are always distinct. If `N` is larger than the pool, it falls back to drawing with replacement so you still get `N` words, with repeats. |
 | `gaw <alias\|r>...`, `get_alias_words` | Print one random word from each named alias, space-separated. Any argument that is `r`, `rand`, or `random` is replaced with a randomly chosen alias (never `words`), and when that happens the chosen alias names are appended in `[brackets]`. Arguments cannot contain `/` or `.`, so files cannot be used here; use `mul` for that. |
 | `mul <folder\|file\|alias>...`, `mfgw`, `multi_folder_get_words` | Print one random word per argument. A **folder** picks a random `.txt` under it and then a random word from that; a **file** (ending in `.txt`) picks a random word from that file; an **alias** picks a random word from the alias. Handy for "one word from myth, one from geology". |
 
@@ -242,7 +242,14 @@ you give:
 |---|---|---|
 | `d X` | `words ∘ X` | `words` (the active pool) |
 | `d A B` | `A ∘ B`; `A` **must** be an alias | `A` (overwritten) |
-| `d A B C` | `A ∘ B` | `C` (new or overwritten alias) |
+| `d A B C` | `A ∘ B` | `C` (new alias, or an existing one after you confirm) |
+
+The one- and two-argument forms never ask before overwriting: replacing the
+active pool is what those forms are for, and `A` is documented as the
+result of `d A B`. The three-argument form asks only when `C` already
+names a pool and is not simply `A` spelled out again; `d A B A` is the
+two-argument form written with an explicit third argument, so it overwrites
+`A` without asking, the same as `d A B` does.
 
 For `diff` the order matters: `d A B` keeps the words of `A` that are not in
 `B`. So `d moby dicts/10k_words.txt rare` gives you the words of
@@ -415,6 +422,15 @@ command syntax through the one endpoint that accepts the command language,
 sharing its table with the parser test, so the browser cannot quietly lose a
 command the terminal has.
 
+### Continuous integration
+
+`.github/workflows/tests.yml` runs the same `./run_tests.sh` on push and on
+every pull request, across Python 3.10, 3.11, 3.12, and 3.13 (the matrix
+starts at 3.10 for the reason given in [Requirements](#requirements)). A
+separate job in the same workflow runs `ruff check .`, configured by
+`ruff.toml` at the repository root. Neither job installs any dependencies
+beyond `ruff` itself; the tool and its tests stay standard-library only.
+
 ## Known limitations
 
 - Filenames are restricted to letters, digits, underscores, and `/`. A file
@@ -429,8 +445,6 @@ command the terminal has.
   than a parse.
 - `Command.validate_args` can only ever check `str` arguments, because
   `parse_args` yields strings for every command except `get_word`.
-- Combining two pools into a name that already exists overwrites it without
-  asking, while saving over a name asks first. The two ought to agree.
 - Sampling is uniform over distinct spellings, not over occurrences, so rare
   words are as likely as common ones. That is usually the point, but it is
   worth knowing.

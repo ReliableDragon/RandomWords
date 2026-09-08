@@ -36,5 +36,13 @@ class GetWord(Command):
     if not words:
       return CommandResult.fail('No words are loaded. Use load, r or dr first.')
     num = args_[0] if args_ else 1
-    drawn = [random.choice(words) for _ in range(num)]
+    # random.sample draws without replacement, so a multi-word draw never
+    # repeats a word while the pool is big enough to cover it. Once the pool
+    # is smaller than the request, sample can't satisfy it (it raises), so we
+    # fall back to sampling with replacement, which is the only way left to
+    # hand back exactly the number of words asked for.
+    if num <= len(words):
+      drawn = random.sample(words, num)
+    else:
+      drawn = [random.choice(words) for _ in range(num)]
     return CommandResult(message=' '.join(drawn), data={'drawn': drawn})
