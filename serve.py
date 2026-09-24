@@ -44,10 +44,13 @@ def main():
                       help='skip reading the dictionaries before serving')
   parser.add_argument('--vault',
                       help='Obsidian vault to open on the /world page')
+  parser.add_argument('--story-folder', action='append', default=[],
+                      help='vault folder containing story scenes; repeatable')
   args = parser.parse_args()
 
   logging.basicConfig(level=logging.WARNING)
-  server = make_server(port=args.port, vault=args.vault)
+  server = make_server(port=args.port, vault=args.vault,
+                       story_folders=args.story_folder)
 
   if not args.no_warm:
     print('Reading the dictionaries...')

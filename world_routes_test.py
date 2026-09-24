@@ -363,6 +363,29 @@ class WorldRoutesTest(unittest.TestCase):
         self.assertEqual(unknown.status, 404)
         self.assertFalse(unknown.payload["ok"])
 
+    def test_story_quotes_and_export_routes_use_configured_folders(self):
+        os.makedirs(os.path.join(self.root, "Story"))
+        with open(os.path.join(self.root, "Story", "One.md"), "w", encoding="utf8") as f:
+            f.write("---\nwhen: 1\nwho: [\"[[Mira]]\"]\n---\nMira visits [[Places/Fenaya]].\n")
+        with open(os.path.join(self.root, "People", "Mira.md"), "w", encoding="utf8") as f:
+            f.write("Mira.\n\n> The valley endures.\n- [[Mira]]\n")
+        index = VaultIndex(self.vault, stat_interval=3600, story_folders=["Story"])
+        story = dispatch(self.request("GET", "/api/world/story", world_index=index))
+        self.assertEqual(story.status, 200)
+        self.assertEqual(story.payload["data"]["scenes"][0]["path"], "Story/One.md")
+        self.assertEqual(story.payload["data"]["scenes"][0]["who"][0]["path"], "People/Mira.md")
+        quote = dispatch(self.request("GET", "/api/world/quotes", {"by": "People/Mira.md"},
+                         world_index=index))
+        self.assertEqual(quote.status, 200)
+        self.assertEqual(quote.payload["data"]["quotes"][0]["speaker"]["path"], "People/Mira.md")
+        exported = dispatch(self.request("GET", "/api/world/export", {"path": "story"},
+                            world_index=index))
+        self.assertEqual(exported.status, 200)
+        self.assertIn("Story/One.md", exported.payload["data"]["entries"])
+        invalid = dispatch(self.request("GET", "/api/world/quotes", {"by": "Mira"},
+                           world_index=index))
+        self.assertEqual(invalid.status, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

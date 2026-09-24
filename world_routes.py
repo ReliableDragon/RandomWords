@@ -681,6 +681,38 @@ def roll(req):
     return _ok("Prompt rolled.", result)
 
 
+def story(req):
+    _ensure_index(req)
+    from world_story import report
+    return _ok("Story report loaded.", report(req.world_index,
+                                                getattr(req.world_index, "story_folders", ())))
+
+
+def quotes(req):
+    _ensure_index(req)
+    from world_story import quotes as story_quotes
+    by = req.query.get("by", "")
+    if not isinstance(by, str):
+        return _fail(400, "Quotation speaker must be a canonical vault path.")
+    try:
+        return _ok("Quotations loaded.", story_quotes(req.world_index, by or None))
+    except ValueError as error:
+        return _fail(400, str(error))
+
+
+def export(req):
+    _ensure_index(req)
+    from world_story import export as make_export
+    path = req.query.get("path", "story")
+    if not isinstance(path, str) or len(path) > 1000:
+        return _fail(400, "Export path must be a vault folder or `story`.")
+    try:
+        return _ok("Export ready.", make_export(req.world_index,
+                                                  getattr(req.world_index, "story_folders", ()), path))
+    except ValueError as error:
+        return _fail(400, str(error))
+
+
 def _ensure_index(req):
     ensure = getattr(req.world_index, "ensure_ready", None) if req.world_index is not None else None
     if callable(ensure):
@@ -702,6 +734,9 @@ ROUTES = {
     ("GET", "/api/world/health"): health,
     ("GET", "/api/world/lexicon"): lexicon,
     ("POST", "/api/world/roll"): roll,
+    ("GET", "/api/world/story"): story,
+    ("GET", "/api/world/quotes"): quotes,
+    ("GET", "/api/world/export"): export,
 }
 
 
