@@ -28,6 +28,8 @@ class Request():
   body: dict = field(default_factory=dict)
   session: object = None
   fm: object = None
+  vault: object = None
+  world_index: object = None
 
 
 @dataclass
@@ -299,6 +301,12 @@ POOL_PREFIX = '/api/pools/'
 # Runs a request through its route, turning the two path errors into
 # ordinary failed responses so no handler has to guard for them.
 def dispatch(req: Request) -> Response:
+  if req.path.startswith('/api/world/'):
+    if req.vault is None:
+      return fail(404, f'No such endpoint: {req.method} {req.path}')
+    import world_routes
+    return world_routes.dispatch(req)
+
   handler = ROUTES.get((req.method, req.path))
 
   # The one route with a name in its path.

@@ -1036,6 +1036,9 @@
   // ---------- init ----------
 
   function init() {
+    fetch('/api/world/tree').then(function (response) {
+      if (response.ok) document.getElementById('worldLink').hidden = false;
+    }).catch(function () {});
     loadKept();
     renderKept();
 

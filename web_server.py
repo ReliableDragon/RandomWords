@@ -22,9 +22,14 @@ STATIC = {
   '/index.html': ('index.html', 'text/html; charset=utf-8'),
   '/app.css': ('app.css', 'text/css; charset=utf-8'),
   '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+  '/world': ('world.html', 'text/html; charset=utf-8'),
+  '/world.html': ('world.html', 'text/html; charset=utf-8'),
+  '/world.js': ('world.js', 'text/javascript; charset=utf-8'),
+  '/world.css': ('world.css', 'text/css; charset=utf-8'),
 }
 
 MAX_BODY = 64 * 1024
+MAX_WORLD_BODY = 1024 * 1024
 LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '[::1]', '::1')
 
 
@@ -52,10 +57,13 @@ class Handler(BaseHTTPRequestHandler):
 
     parsed = urlparse(self.path)
     if method == 'GET' and parsed.path in STATIC:
+      if parsed.path.startswith('/world') and self.server.vault is None:
+        self.send_json(404, {'ok': False, 'message': 'Not found.'})
+        return
       self.send_static(parsed.path)
       return
 
-    body, problem = self.read_body(method)
+    body, problem = self.read_body(method, parsed.path)
     if problem:
       self.refuse(400, problem)
       return
@@ -66,7 +74,9 @@ class Handler(BaseHTTPRequestHandler):
         query={k: v[0] for k, v in parse_qs(parsed.query).items()},
         body=body,
         session=self.server.sessions.for_request(self.headers),
-        fm=self.server.fm)
+        fm=self.server.fm,
+        vault=self.server.vault,
+        world_index=self.server.world_index)
 
     try:
       response = web_routes.dispatch(request)
@@ -109,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
     port = self.server.server_port
     return {f'http://{host}:{port}' for host in ('localhost', '127.0.0.1', '[::1]')}
 
-  def read_body(self, method):
+  def read_body(self, method, path=''):
     if method != 'POST':
       return {}, None
 
@@ -117,7 +127,8 @@ class Handler(BaseHTTPRequestHandler):
       length = int(self.headers.get('Content-Length') or 0)
     except ValueError:
       return {}, 'Send a Content-Length.'
-    if length > MAX_BODY:
+    cap = MAX_WORLD_BODY if path.startswith('/api/world/') else MAX_BODY
+    if length > cap:
       return {}, 'That request is too large.'
     if length == 0:
       return {}, None
@@ -167,12 +178,20 @@ class Handler(BaseHTTPRequestHandler):
     logger.info('%s %s', self.address_string(), fmt % args)
 
 
-def make_server(port=0, root=None, host='127.0.0.1', index=None):
+def make_server(port=0, root=None, host='127.0.0.1', index=None, vault=None,
+                world_index=None):
   fm = CachingFileManager() if root is None else CachingFileManager(root)
   index = WordIndex(fm) if index is None else index
   server = ThreadingHTTPServer((host, port), Handler)
   server.fm = fm
   server.index = index
+  if vault is not None:
+    from vault import VaultManager
+    from vault_index import VaultIndex
+    vault = vault if isinstance(vault, VaultManager) else VaultManager(vault)
+    world_index = world_index or VaultIndex(vault)
+  server.vault = vault
+  server.world_index = world_index
   server.sessions = SessionStore(fm, index)
   server.daemon_threads = True
   return server

@@ -105,6 +105,24 @@ a button stays reachable; `/` focuses it and the up arrow walks its history. The
 word keeps it; kept words survive a restart in browser storage and can be
 copied or exported as a one-word-per-line file.
 
+### Worldbuilding desk
+
+To open an Obsidian vault beside the word bench, start the server with
+`python3 serve.py --vault ~/Documents/Worldbuilding` and use the
+**Worldbuilding desk** link on the main page. The link and `/world` page are
+available only when a vault is configured. The desk can browse and search
+Markdown notes, create entries at an explicit folder path, preview and edit
+notes, and suggest existing entries mentioned in a draft or sharing its biome
+or tags. It reads the vault in place; no import or index file is written to
+the vault.
+
+Saves require the exact revision returned when the note was opened. If
+Obsidian changed the file, the desk shows both versions before a replacement.
+It keeps the replaced bytes in `~/.randomwords/recovery` and can keep an
+unsaved draft in browser storage. Recovery copies are kept until manually
+removed. The writer preserves each existing note's
+BOM, newline style, and final newline convention.
+
 ### What the server exposes
 
 | Method | Path | Body or query | Does |

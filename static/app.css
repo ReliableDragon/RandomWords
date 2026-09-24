@@ -406,6 +406,9 @@ kbd {
 
 .btn-quiet:hover { background: var(--sunk); }
 
+#worldLink { margin-bottom: 1rem; text-decoration: none; }
+#worldLink[hidden] { display: none; }
+
 .btn-quiet .btn-label {
   font-size: 0.88rem;
   font-weight: 600;

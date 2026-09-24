@@ -1,5 +1,7 @@
 import http.client
 import json
+import os
+import tempfile
 import threading
 import unittest
 
@@ -29,11 +31,12 @@ class ServerTest(unittest.TestCase):
 
   # Sends a request with exactly the headers given, so the checks can be
   # driven with the headers a browser would really send.
-  def send(self, method, path, body=None, headers=None, host=None):
-    conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+  def send(self, method, path, body=None, headers=None, host=None, port=None):
+    port = self.port if port is None else port
+    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
     try:
       conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
-      conn.putheader('Host', host if host is not None else f'127.0.0.1:{self.port}')
+      conn.putheader('Host', host if host is not None else f'127.0.0.1:{port}')
       payload = b''
       if body is not None:
         payload = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -52,10 +55,22 @@ class ServerTest(unittest.TestCase):
     finally:
       conn.close()
 
-  def post(self, path, body, headers=None, host=None):
+  def post(self, path, body, headers=None, host=None, port=None):
     merged = {'Content-Type': 'application/json'}
     merged.update(headers or {})
-    return self.send('POST', path, body=body, headers=merged, host=host)
+    return self.send('POST', path, body=body, headers=merged, host=host, port=port)
+
+  def start_additional_server(self, vault=None):
+    server = make_server(port=0, root=self.td.root, vault=vault)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
+    thread.start()
+    def stop():
+      server.shutdown()
+      server.server_close()
+      thread.join(timeout=5)
+    self.addCleanup(stop)
+    return server
 
   ###
   ### the origin table: loopback is not a trust boundary on its own
@@ -116,6 +131,14 @@ class ServerTest(unittest.TestCase):
     self.assertEqual(status, 400)
     self.assertIn('too large', payload['message'])
 
+  def test_world_nearby_accepts_body_above_regular_post_cap(self):
+    with tempfile.TemporaryDirectory() as vault_dir:
+      server = self.start_additional_server(vault=vault_dir)
+      body = {'text': 'A' * (70 * 1024), 'path': 'Draft.md', 'client_revision': 1}
+      status, payload = self.post('/api/world/nearby', body, port=server.server_port)
+      self.assertEqual(status, 200, payload)
+      self.assertTrue(payload['ok'])
+
   def test_malformed_json_is_refused(self):
     status, payload = self.post('/api/draw', b'{not json')
     self.assertEqual(status, 400)
@@ -138,6 +161,25 @@ class ServerTest(unittest.TestCase):
   def test_unknown_static_path_is_not_found(self):
     status, payload = self.send('GET', '/secrets.txt')
     self.assertEqual(status, 404)
+
+  def test_world_routes_are_opt_in(self):
+    status, _ = self.send('GET', '/world')
+    self.assertEqual(status, 404)
+    status, _ = self.send('GET', '/api/world/tree')
+    self.assertEqual(status, 404)
+
+  def test_configured_vault_serves_world_page_and_tree_api(self):
+    with tempfile.TemporaryDirectory() as vault_dir:
+      with open(os.path.join(vault_dir, 'A note.md'), 'w', encoding='utf-8') as f:
+        f.write('A note body.')
+      server = self.start_additional_server(vault=vault_dir)
+      status, raw = self.send('GET', '/world', port=server.server_port)
+      self.assertEqual(status, 200)
+      self.assertIn(b'<!doctype html', raw.lower())
+      status, payload = self.send('GET', '/api/world/tree', port=server.server_port)
+      self.assertEqual(status, 200, payload)
+      self.assertTrue(payload['ok'])
+      self.assertEqual([row['path'] for row in payload['data']['entries']], ['A note.md'])
 
   def test_a_traversal_in_the_url_finds_nothing(self):
     for path in ['/../file_manager.py', '/static/../serve.py', '/app.js/../../serve.py']:

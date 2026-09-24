@@ -42,10 +42,12 @@ def main():
                       help='pool to load at startup')
   parser.add_argument('--no-warm', action='store_true',
                       help='skip reading the dictionaries before serving')
+  parser.add_argument('--vault',
+                      help='Obsidian vault to open on the /world page')
   args = parser.parse_args()
 
   logging.basicConfig(level=logging.WARNING)
-  server = make_server(port=args.port)
+  server = make_server(port=args.port, vault=args.vault)
 
   if not args.no_warm:
     print('Reading the dictionaries...')
