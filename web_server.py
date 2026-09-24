@@ -76,7 +76,8 @@ class Handler(BaseHTTPRequestHandler):
         session=self.server.sessions.for_request(self.headers),
         fm=self.server.fm,
         vault=self.server.vault,
-        world_index=self.server.world_index)
+        world_index=self.server.world_index,
+        word_index=self.server.index)
 
     try:
       response = web_routes.dispatch(request)

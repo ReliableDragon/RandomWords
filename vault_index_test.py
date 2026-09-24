@@ -69,6 +69,35 @@ class VaultIndexTest(unittest.TestCase):
         index.ensure_ready()
         self.assertIn("B.md", index.entries)
 
+    def test_bm25_is_body_only_positive_and_deterministic(self):
+        self.note("A.md", "Origin: moonstone\n\nriver glass river")
+        self.note("B.md", "river glass")
+        self.note("C.md", "forest medicine")
+        self.note("Metadata.md", "Origin: moonstone\n\nplain body")
+        index = VaultIndex(self.vault)
+        index.ensure_ready()
+        rows = index.bm25("river glass")
+        self.assertEqual([row[0] for row in rows[:2]], ["B.md", "A.md"])
+        self.assertTrue(all(row[1] > 0 for row in rows))
+        self.assertEqual(rows[0][2], ("glass", "river"))
+        self.assertEqual(index.bm25("moonstone"), [])
+        self.assertIn("forest", index.term_frequencies["C.md"])
+        self.assertIn("medicine", index.term_frequencies["C.md"])
+
+    def test_membership_provenance_is_immediate_place_and_deduplicates_biome(self):
+        self.note("Locations/Biomes/Class/Fenaya.md")
+        self.note("Locations/Settlements/Town.md", "From: [[Fenaya]]\n")
+        self.note("People/Visitor.md", "From: [[Town]], [[Fenaya]]\n")
+        index = VaultIndex(self.vault)
+        index.ensure_ready()
+        memberships = index.memberships["People/Visitor.md"]
+        self.assertEqual(len(memberships), 1)
+        self.assertEqual(memberships[0].path, "Locations/Biomes/Class/Fenaya.md")
+        self.assertEqual(memberships[0].via, "ancestor_target")
+        self.assertEqual(memberships[0].source_path, "Locations/Settlements/Town.md")
+        self.assertEqual(index.direct_places["People/Visitor.md"], (
+            "Locations/Settlements/Town.md", "Locations/Biomes/Class/Fenaya.md"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,6 +30,7 @@ class Request():
   fm: object = None
   vault: object = None
   world_index: object = None
+  word_index: object = None
 
 
 @dataclass

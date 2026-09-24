@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import Counter
+import math
 import os
+import re
 import threading
 import time
 import unicodedata
@@ -12,6 +15,19 @@ from vault import UnreadableSource
 
 
 DEFAULT_FOLDER_BIOMES = {"Bitters": "Bitter Return Mountains"}
+
+# Deliberately grammatical rather than topical. Corpus frequency handles
+# ordinary world words; terms such as water, forest, glass and medicine must
+# remain available as useful connective tissue.
+STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by",
+    "for", "from", "had", "has", "have", "he", "her", "his", "i", "in",
+    "is", "it", "its", "not", "of", "on", "or", "she", "that", "the",
+    "their", "them", "they", "this", "to", "was", "were", "which", "who",
+    "with", "you",
+})
+_TERM = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
+_FENCE = re.compile(r"(?ms)^```.*?^```\s*$")
 
 
 def _key(value: str) -> str:
@@ -54,7 +70,12 @@ class VaultIndex:
         self.forward_links: dict[str, tuple[Resolution, ...]] = {}
         self.backlinks: dict[str, tuple[tuple[str, Link], ...]] = {}
         self.memberships: dict[str, tuple[Membership, ...]] = {}
+        self.direct_places: dict[str, tuple[str, ...]] = {}
         self.tags: dict[str, tuple[str, ...]] = {}
+        self.term_frequencies: dict[str, Counter[str]] = {}
+        self.document_lengths: dict[str, int] = {}
+        self.document_frequencies: dict[str, int] = {}
+        self.average_document_length = 0.0
 
     def ensure_ready(self) -> bool:
         now = time.monotonic()
@@ -117,20 +138,22 @@ class VaultIndex:
 
         biome_paths = {p for p in entries if p.startswith("Locations/Biomes/")}
         memberships: dict[str, tuple[Membership, ...]] = {}
+        direct_places: dict[str, tuple[str, ...]] = {}
         for path, entry in entries.items():
             found: list[Membership] = []
             seen: set[str] = set()
+            immediate: list[str] = []
 
             def add(candidate: str, via: str, source: str | None):
                 if candidate in biome_paths and candidate not in seen:
                     seen.add(candidate)
                     found.append(Membership(candidate, via, source))
 
-            def ancestry(candidate: str, root: bool, visiting: set[str]):
+            def ancestry(candidate: str, root: bool, visiting: set[str], source: str):
                 if candidate in visiting:
                     return
                 if candidate in biome_paths:
-                    add(candidate, "from_target" if root else "ancestor_target", candidate)
+                    add(candidate, "from_target" if root else "ancestor_target", source)
                     return
                 parent = entries.get(candidate)
                 if not parent:
@@ -139,12 +162,17 @@ class VaultIndex:
                 for parent_link in parent.from_targets:
                     r = resolve(parent_link.target, candidate)
                     if r.path:
-                        ancestry(r.path, False, visiting)
+                        ancestry(r.path, False, visiting, source)
 
             for link in entry.from_targets:
                 r = resolve(link.target, path)
                 if r.path:
-                    ancestry(r.path, True, {path})
+                    if (r.path.startswith("Locations/Places/") or
+                            r.path.startswith("Locations/Settlements/") or
+                            r.path.startswith("Locations/Biomes/")):
+                        if r.path not in immediate:
+                            immediate.append(r.path)
+                    ancestry(r.path, True, {path}, r.path)
 
             region = self._taxonomy_region(path)
             if region:
@@ -157,6 +185,7 @@ class VaultIndex:
                 if len(candidates) == 1:
                     add(next(iter(candidates)), "folder_fallback", region)
             memberships[path] = tuple(found)
+            direct_places[path] = tuple(immediate)
             # Keep the parsed object convenient for route serialization.
             entry.biomes = list(found)
 
@@ -164,6 +193,19 @@ class VaultIndex:
         for path, entry in entries.items():
             for tag in entry.tags:
                 tag_work.setdefault(_key(tag), []).append(path)
+
+        term_frequencies: dict[str, Counter[str]] = {}
+        document_lengths: dict[str, int] = {}
+        document_frequencies: Counter[str] = Counter()
+        for path, entry in entries.items():
+            frequencies = Counter(self.terms(entry.body))
+            term_frequencies[path] = frequencies
+            document_lengths[path] = sum(frequencies.values())
+            document_frequencies.update(frequencies)
+        average_document_length = (
+            sum(document_lengths.values()) / len(document_lengths)
+            if document_lengths else 0.0
+        )
 
         with self._lock:
             self.entries = entries
@@ -173,10 +215,53 @@ class VaultIndex:
             self.forward_links = forward
             self.backlinks = {p: tuple(v) for p, v in backlink_work.items()}
             self.memberships = memberships
+            self.direct_places = direct_places
             self.tags = {tag: tuple(paths) for tag, paths in tag_work.items()}
+            self.term_frequencies = term_frequencies
+            self.document_lengths = document_lengths
+            self.document_frequencies = dict(document_frequencies)
+            self.average_document_length = average_document_length
             self._stamps = dict(stamps)
             self.ready = True
         return len(entries)
+
+    @staticmethod
+    def terms(body: str) -> list[str]:
+        """Unicode body terms, excluding fenced code and grammar stop words."""
+        body = _FENCE.sub(" ", body)
+        return [term for match in _TERM.finditer(body)
+                if (term := _key(match.group())) not in STOP_WORDS]
+
+    def bm25(self, text: str, limit: int | None = None) -> list[tuple[str, float, tuple[str, ...]]]:
+        """Rank indexed entries against body text with positive BM25 IDF.
+
+        Results contain ``(path, score, shared_terms)`` and are stable for
+        equal scores. Repeated query terms contribute their actual frequency.
+        """
+        self.ensure_ready()
+        query = Counter(self.terms(text))
+        if not query:
+            return []
+        with self._lock:
+            count = len(self.entries)
+            average = self.average_document_length or 1.0
+            rows = []
+            for path, frequencies in self.term_frequencies.items():
+                shared = tuple(sorted(query.keys() & frequencies.keys(),
+                                      key=lambda term: (-query[term] * frequencies[term], term)))
+                if not shared:
+                    continue
+                length = self.document_lengths[path]
+                score = 0.0
+                for term in shared:
+                    frequency = frequencies[term]
+                    documents = self.document_frequencies[term]
+                    idf = math.log(1.0 + (count - documents + 0.5) / (documents + 0.5))
+                    norm = frequency + 1.2 * (1.0 - 0.75 + 0.75 * length / average)
+                    score += query[term] * idf * frequency * 2.2 / norm
+                rows.append((path, score, shared))
+            rows.sort(key=lambda row: (-row[1], _key(self.entries[row[0]].title), row[0]))
+            return rows if limit is None else rows[:limit]
 
     @staticmethod
     def _multimap(items) -> dict[str, tuple[str, ...]]:

@@ -3,9 +3,10 @@
   var DRAFT_PREFIX = 'randomwords.world.draft.v1:';
   var RECOVERY_PREFIX = 'randomwords.world.recovery.v1:';
   var KEPT_KEY = 'randomwords.kept.v1';
-  var state = { current:null, savedText:'', revision:null, lineEnding:'\n', dirty:false, preview:false, treeLoaded:new Set(), expanded:new Set(), nearbySeq:0, nearby:null, searchSeq:0, kept:[], drawn:[], conflict:null, replaceRevision:null, autocomplete:null, acItems:[], acIndex:0, polling:null };
+  var state = { current:null, savedText:'', revision:null, lineEnding:'\n', dirty:false, preview:false, treeLoaded:new Set(), expanded:new Set(), nearbySeq:0, nearby:null, searchSeq:0, lexiconSeq:0, kept:[], drawn:[], conflict:null, replaceRevision:null, autocomplete:null, acItems:[], acIndex:0, polling:null, pendingIdea:null, retryIdea:null };
   var $ = function (id) { return document.getElementById(id); };
   var el = { status:$('worldStatus'), tree:$('worldTree'), search:$('worldSearch'), searchResults:$('searchResults'), welcome:$('welcome'), pane:$('entryPane'), create:$('createPane'), title:$('entryTitle'), folder:$('entryFolder'), words:$('entryWords'), text:$('entryText'), draftState:$('draftState'), saveNotice:$('saveNotice'), conflict:$('conflictPanel'), conflictDraft:$('conflictDraft'), conflictDisk:$('conflictDisk'), preview:$('entryPreview'), compose:$('composeArea'), backlinks:$('backlinkList'), backlinkCount:$('backlinkCount'), groups:$('nearbyGroups'), nearbyState:$('nearbyState'), reference:$('referenceCard'), ac:$('autocomplete'), benchWords:$('benchWords'), startKept:$('startFromKept'), createForm:$('createForm'), createError:$('createError') };
+  var activeView='desk';
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function textareaText(s) { return String(s == null ? '' : s).replace(/\r\n?/g,'\n'); }
   function detectLineEnding(s) { return String(s||'').indexOf('\r\n')>=0?'\r\n':(String(s||'').indexOf('\r')>=0?'\r':'\n'); }
@@ -21,6 +22,95 @@
   function post(path, body) { return request(path,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(body)}); }
   function pathUrl(p) { return encodeURIComponent(p); }
   function entryTitle(entry) { return entry.title||entry.name||(entry.path||'').split('/').pop().replace(/\.md$/i,''); }
+  function textNode(tag, text, className) { var node=document.createElement(tag); node.textContent=String(text==null?'':text); if(className)node.className=className; return node; }
+  function loadCoverage(force) {
+    if(!force&&$('coverageContent').dataset.loaded==='yes')return;
+    var host=$('coverageContent'); host.dataset.loaded='loading'; host.replaceChildren(textNode('p','Loading coverage…','muted'));
+    get('/api/world/matrix').then(function(data){renderCoverage(data);host.dataset.loaded='yes';}).catch(function(error){host.dataset.loaded='no';host.replaceChildren(textNode('p',error.message,'tree-error'));});
+  }
+  function renderCoverage(data) {
+    var host=$('coverageContent'), kinds=Array.isArray(data.kinds)?data.kinds:[], rows=Array.isArray(data.rows)?data.rows:[];
+    if(!rows.length){host.replaceChildren(textNode('p','No canonical biome rows were found.','muted'));return;}
+    var wrap=document.createElement('div');wrap.className='coverage-table-wrap';var table=document.createElement('table');table.className='coverage-table';var head=document.createElement('thead'),hr=document.createElement('tr');
+    hr.appendChild(textNode('th','Biome'));kinds.forEach(function(kind){hr.appendChild(textNode('th',kind));});head.appendChild(hr);table.appendChild(head);
+    var body=document.createElement('tbody');
+    rows.forEach(function(row){var tr=document.createElement('tr'),nameCell=document.createElement('th');nameCell.scope='row';var openBiome=document.createElement('button');openBiome.type='button';openBiome.className='report-entry-link';openBiome.textContent=row.title||entryTitle(row);openBiome.addEventListener('click',function(){openEntry(row.path);});nameCell.appendChild(openBiome);nameCell.appendChild(textNode('small',row.path,'report-path'));tr.appendChild(nameCell);
+      kinds.forEach(function(kind){var td=document.createElement('td'),cell=(row.cells&&row.cells[kind])||{count:0,entries:[]},button=document.createElement('button');button.type='button';button.className='coverage-count';button.textContent=String(cell.count==null?(cell.entries||[]).length:cell.count);button.setAttribute('aria-label',(cell.count||0)+' '+kind+' entries in '+(row.title||row.path));
+        var listing=document.createElement('div');listing.className='coverage-cell-entries';listing.hidden=true;
+        (cell.entries||[]).forEach(function(entry){var item=document.createElement('div');item.className='coverage-entry';var link=document.createElement('button');link.type='button';link.className='report-entry-link';link.textContent=entry.title||entryTitle(entry);link.addEventListener('click',function(){openEntry(entry.path);});item.appendChild(link);
+          (entry.memberships||[]).forEach(function(member){var via=typeof member==='string'?member:(member.via||'membership');var source=typeof member==='string'?'':(member.source_path||'');item.appendChild(textNode('small',via+(source?' · '+source:''),'report-provenance'));});
+          (entry.direct_places||[]).forEach(function(place){var direct=document.createElement('button');direct.type='button';direct.className='report-entry-link';direct.textContent='Direct place: '+(place.title||entryTitle(place));direct.addEventListener('click',function(){openEntry(place.path);});item.appendChild(direct);});listing.appendChild(item);});
+        button.addEventListener('click',function(){listing.hidden=!listing.hidden;button.setAttribute('aria-expanded',listing.hidden?'false':'true');});td.appendChild(button);td.appendChild(listing);tr.appendChild(td);});body.appendChild(tr);});
+    table.appendChild(body);wrap.appendChild(table);host.replaceChildren(wrap);
+  }
+  function loadUpkeep(force) {
+    if(!force&&$('upkeepContent').dataset.loaded==='yes')return;
+    var host=$('upkeepContent');host.dataset.loaded='loading';host.replaceChildren(textNode('p','Loading upkeep…','muted'));
+    get('/api/world/health').then(function(data){renderUpkeep(data);host.dataset.loaded='yes';}).catch(function(error){host.dataset.loaded='no';host.replaceChildren(textNode('p',error.message,'tree-error'));});
+  }
+  function renderUpkeep(data) {
+    var host=$('upkeepContent'), sections=data.sections||{}, counts=data.counts||{}, fragment=document.createDocumentFragment();
+    if(Array.isArray(sections)) { sections=sections.reduce(function(map,section){map[section.key||section.id||section.title||'Findings']=section.items||section.entries||[];return map;},{}); }
+    var names=Object.keys(sections);if(!names.length){host.replaceChildren(textNode('p','No upkeep findings.','muted'));return;}
+    names.forEach(function(name){var values=sections[name];if(!Array.isArray(values))values=values&&Array.isArray(values.items)?values.items:[];var section=document.createElement('details');section.className='report-section';section.open=values.length<=24;var heading=document.createElement('summary');heading.className='report-section-heading';heading.appendChild(textNode('h3',name.replace(/_/g,' ')));var count=counts[name];if(count==null)count=values.length;heading.appendChild(textNode('span',count,'report-count'));section.appendChild(heading);
+      if(!values.length){section.appendChild(textNode('p','Nothing to review.','muted'));}
+      values.forEach(function(item){var card=document.createElement('article');card.className='report-card';var path=item.path||item.source_path||item.canonical_path||'';var headingText=item.title||item.name||item.phrase||item.target||item.from||item.text||path||'Finding';card.appendChild(textNode('h4',headingText));
+        if(item.count!=null&&item.phrase)card.appendChild(textNode('small','Named '+item.count+' times','report-path'));
+        var detail=item.context||item.reason||item.text||item.target||item.message||'';if(detail&&detail!==headingText)card.appendChild(textNode('p',detail));
+        if(item.to)card.appendChild(textNode('p','Possible spelling: '+item.from+' → '+item.to));
+        if(item.other_path){var other=document.createElement('button');other.type='button';other.className='report-entry-link';other.textContent='Open '+item.to;other.addEventListener('click',function(){openEntry(item.other_path);});card.appendChild(other);}
+        if(item.line!=null)card.appendChild(textNode('small','Line '+item.line,'report-path'));
+        if(path){var action=document.createElement('button');action.type='button';action.className='btn btn-small btn-quiet';action.textContent='Open note';action.addEventListener('click',function(){openEntry(path);});card.appendChild(action);}
+        section.appendChild(card);});fragment.appendChild(section);});host.replaceChildren(fragment);
+  }
+  function loadLexicon(force) {
+    if(!force&&$('lexiconContent').dataset.loaded==='yes')return;
+    var params=new URLSearchParams(),q=$('lexiconQuery').value.trim(),biome=$('lexiconBiome').value;
+    if(q)params.set('q',q);if(biome)params.set('biome',biome);if($('lexiconOnce').checked)params.set('once','1');
+    var host=$('lexiconContent'),sequence=++state.lexiconSeq;host.dataset.loaded='loading';host.replaceChildren(textNode('p','Loading lexicon…','muted'));
+    get('/api/world/lexicon?'+params.toString()).then(function(data){if(sequence!==state.lexiconSeq)return;renderLexicon(data);host.dataset.loaded='yes';}).catch(function(error){if(sequence!==state.lexiconSeq)return;host.dataset.loaded='no';host.replaceChildren(textNode('p',error.message,'tree-error'));});
+  }
+  function renderLexicon(data) {
+    var host=$('lexiconContent'),select=$('lexiconBiome'),selected=select.value,biomes=data.biomes||[];
+    while(select.options.length>1)select.remove(1);
+    biomes.forEach(function(biome){var option=document.createElement('option');option.value=biome.path;option.textContent=biome.title||biome.path;select.appendChild(option);});
+    if(biomes.some(function(b){return b.path===selected;}))select.value=selected;
+    var fragment=document.createDocumentFragment(),drift=data.drift||[],entries=data.entries||[];
+    if(drift.length){var driftSection=document.createElement('section');driftSection.className='report-section';driftSection.appendChild(textNode('h3','Possible spelling drift'));drift.forEach(function(pair){var card=document.createElement('article');card.className='report-card';card.appendChild(textNode('strong',pair.from+' → '+pair.to));card.appendChild(textNode('small','Distance '+pair.distance+' · '+pair.from_count+' uses vs '+pair.to_count,'report-path'));(pair.paths||[]).forEach(function(path){var b=document.createElement('button');b.type='button';b.className='report-entry-link';b.textContent='Open '+path;b.addEventListener('click',function(){openEntry(path);});card.appendChild(b);});driftSection.appendChild(card);});fragment.appendChild(driftSection);}
+    if(!entries.length)fragment.appendChild(textNode('p','No coined words match these filters.','muted'));
+    entries.forEach(function(entry){var card=document.createElement('article');card.className='lexicon-entry report-card';var head=document.createElement('div');head.className='report-section-heading';head.appendChild(textNode('h3',entry.word));head.appendChild(textNode('span',entry.count+' uses','report-count'));card.appendChild(head);
+      card.appendChild(textNode('p',(entry.spellings||[]).map(function(s){return s.spelling+' ('+s.count+')';}).join(' · '),'lexicon-spellings'));
+      var uses=document.createElement('div');uses.className='lexicon-uses';(entry.uses||[]).forEach(function(use){var row=document.createElement('div');row.className='lexicon-use';var open=document.createElement('button');open.type='button';open.className='report-entry-link';open.textContent=use.path;open.addEventListener('click',function(){openEntry(use.path);});row.appendChild(open);row.appendChild(textNode('small',use.count+' occurrences'+((use.biomes||[]).length?' · '+use.biomes.join(', '):''),'report-path'));uses.appendChild(row);});card.appendChild(uses);
+      if(entry.which){card.appendChild(textNode('small','In '+entry.which.count+' library texts','report-path'));(entry.which.texts||[]).slice(0,5).forEach(function(path){card.appendChild(textNode('small',path,'lexicon-library-use'));});}
+      fragment.appendChild(card);});host.replaceChildren(fragment);
+  }
+  var lexiconTimer=null;
+  $('lexiconQuery').addEventListener('input',function(){clearTimeout(lexiconTimer);lexiconTimer=setTimeout(function(){loadLexicon(true);},220);});
+  $('lexiconBiome').addEventListener('change',function(){loadLexicon(true);});
+  $('lexiconOnce').addEventListener('change',function(){loadLexicon(true);});
+  function loadBacklog(force) {
+    var host=$('backlogContent');if(!force&&host.dataset.loaded==='yes')return;
+    host.dataset.loaded='loading';host.replaceChildren(textNode('p','Loading ideas…','muted'));
+    get('/api/world/backlog').then(function(data){renderBacklog(data);host.dataset.loaded='yes';}).catch(function(error){host.dataset.loaded='no';host.replaceChildren(textNode('p',error.message,'tree-error'));});
+  }
+  function renderBacklog(data) {
+    var host=$('backlogContent'),ideas=data.ideas||[],fragment=document.createDocumentFragment();
+    if(!ideas.length){host.replaceChildren(textNode('p','No backlog ideas were found.','muted'));return;}
+    ideas.forEach(function(idea){var card=document.createElement('article');card.className='report-card backlog-idea'+(idea.done?' is-done':'');
+      card.appendChild(textNode('p',idea.expected||idea.text||idea.title||idea.path,'backlog-idea-text'));
+      card.appendChild(textNode('small',idea.path,'report-path'));
+      var actions=document.createElement('div');actions.className='world-actions';
+      if(idea.done){var open=document.createElement('button');open.type='button';open.className='btn btn-small btn-quiet';open.textContent='Open idea';open.addEventListener('click',function(){openEntry(idea.path);});actions.appendChild(open);}
+      else {var start=document.createElement('button');start.type='button';start.className='btn btn-small btn-primary';start.textContent='Start an entry';start.addEventListener('click',function(){var seed=(idea.expected||'').trim().split(/\s+/).slice(0,4).join(' ').replace(/[.,;:!?]+$/,'');beginCreate(seed,'',idea);});actions.appendChild(start);}
+      card.appendChild(actions);fragment.appendChild(card);});host.replaceChildren(fragment);
+  }
+  function renderRoll(result) {
+    var card=$('rollCard'),entry=result.entry,entries=Array.isArray(entry)?entry:(entry?[entry]:[]);card.replaceChildren();card.hidden=false;card.className='roll-card';
+    card.appendChild(textNode('p',result.facet||'Writing prompt','eyebrow'));
+    var entriesBox=document.createElement('div');entriesBox.className='roll-entries';entries.forEach(function(item,index){if(index)entriesBox.appendChild(textNode('span','×','roll-times'));var open=document.createElement('button');open.type='button';open.className='report-entry-link roll-entry';open.textContent=item.title||entryTitle(item);open.addEventListener('click',function(){openEntry(item.path);});entriesBox.appendChild(open);});card.appendChild(entriesBox);
+    var words=result.words||[];if(words.length)card.appendChild(textNode('p',words.join(' · '),'roll-words'));
+  }
+  $('rollPrompt').addEventListener('click',async function(){var card=$('rollCard');card.hidden=false;card.replaceChildren(textNode('p','Rolling…','muted'));try{renderRoll(await post('/api/world/roll',{}));}catch(error){card.replaceChildren(textNode('p',error.message,'tree-error'));}});
   function draftKey(path) { return DRAFT_PREFIX+path; }
   function recoveryKey(path) { return RECOVERY_PREFIX+path; }
   function storeDraft() { if (!state.current) return; try { if (state.dirty) localStorage.setItem(draftKey(state.current),JSON.stringify({text:el.text.value,revision:state.revision,updated:new Date().toISOString()})); else localStorage.removeItem(draftKey(state.current)); } catch (_) {} }
@@ -31,6 +121,17 @@
   function showPane(which) { el.welcome.hidden=which!=='welcome'; el.pane.hidden=which!=='entry'; el.create.hidden=which!=='create'; }
   function displayPath(path) { return path.replace(/\.md$/i,''); }
   function setDirty() { state.dirty=el.text.value!==state.savedText; el.draftState.textContent=state.dirty?'Unsaved draft':'Saved'; el.draftState.className='draft-state'+(state.dirty?' is-dirty':''); storeDraft(); }
+  function setWorldView(name) {
+    activeView=name;
+    document.querySelectorAll('[data-view-panel]').forEach(function(panel){panel.hidden=panel.getAttribute('data-view-panel')!==name;});
+    document.querySelectorAll('[data-world-view]').forEach(function(button){if(button.getAttribute('data-world-view')===name)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});
+    if(name==='coverage')loadCoverage();
+    if(name==='upkeep')loadUpkeep();
+    if(name==='lexicon')loadLexicon();
+    if(name==='backlog')loadBacklog();
+  }
+  document.querySelectorAll('[data-world-view]').forEach(function(button){button.addEventListener('click',function(){setWorldView(button.getAttribute('data-world-view'));});});
+  document.querySelectorAll('[data-refresh-view]').forEach(function(button){button.addEventListener('click',function(){if(button.dataset.refreshView==='coverage')loadCoverage(true);if(button.dataset.refreshView==='upkeep')loadUpkeep(true);if(button.dataset.refreshView==='lexicon')loadLexicon(true);if(button.dataset.refreshView==='backlog')loadBacklog(true);});});
 
   // Folder tree is loaded on demand. Paths, rather than titles, remain the
   // identity so duplicate titles in different folders stay distinct.
@@ -68,12 +169,13 @@
       var d=await get('/api/world/entry?path='+encodeURIComponent(path)); state.current=d.path||path; state.revision=d.revision; state.lineEnding=detectLineEnding(d.text); state.savedText=textareaText(d.text); state.dirty=false;
       var recovered=readDraft(state.current); if(recovered&&recovered.text!==state.savedText) { el.text.value=textareaText(recovered.text); state.dirty=true; el.saveNotice.textContent='Recovered an unsaved browser draft for this entry.'; el.saveNotice.className='save-notice'; el.saveNotice.hidden=false; } else el.text.value=state.savedText;
       el.title.textContent=(d.entry&&d.entry.title)||entryTitle({path:state.current}); el.folder.textContent=state.current.includes('/')?state.current.slice(0,state.current.lastIndexOf('/')):'Vault root'; el.words.textContent=(d.entry&&d.entry.words!=null)?d.entry.words+' words':'';
-      showPane('entry'); renderBacklinks(d.backlinks||[]); renderPreview(d.html); showRecovery(state.current); setDirty(); scheduleNearby(); pollRevision(); loadRoot();
+      setWorldView('desk'); showPane('entry'); renderBacklinks(d.backlinks||[]); renderPreview(d.html); showRecovery(state.current); setDirty(); scheduleNearby(); pollRevision(); loadRoot();
     } catch(e) { status(e.message,'error'); }
   }
   function renderPreview(html) { if(typeof html==='string') { el.preview.innerHTML=html; bindPreviewLinks(); } }
   function bindPreviewLinks() { el.preview.querySelectorAll('a').forEach(function(a){ var href=a.getAttribute('href')||''; var isEntry=href.indexOf('world:')===0||/\/world\/entry(?:\?|$)/.test(href)||/\/api\/world\/entry(?:\?|$)/.test(href); if(isEntry) { a.addEventListener('click',function(ev){ev.preventDefault(); var p=href.indexOf('world:')===0?decodeURIComponent(href.slice(6)):new URL(href,location.href).searchParams.get('path'); if(!p)return; if(ev.ctrlKey||ev.metaKey)findAndOpenReference(p);else openEntry(p); }); } }); }
   function showNotice(text,error) { el.saveNotice.textContent=text; el.saveNotice.className='save-notice'+(error?' error':''); el.saveNotice.hidden=false; }
+  function offerIdeaRetry() { if(!state.retryIdea)return;var button=document.createElement('button');button.type='button';button.className='btn btn-small btn-quiet';button.textContent='Review and retry idea';button.addEventListener('click',async function(){button.disabled=true;var prior=state.retryIdea;try{var data=await get('/api/world/backlog'),matches=(data.ideas||[]).filter(function(row){return row.path===prior.path&&row.expected===prior.expected&&!row.done;});if(matches.length!==1){showNotice(matches.length?'Several matching ideas remain. Review the Ideas source manually.':'The original idea changed or was completed. Review the Ideas source manually.',true);await openEntry(prior.path);return;}var current=matches[0],approved=window.confirm('Current idea source:\n'+current.path+'\n\n- '+current.expected+'\n\nMark this current idea as started?');if(!approved)return;await post('/api/world/backlog/strike',current);state.retryIdea=null;showNotice('Idea marked as started.');$('backlogContent').dataset.loaded='no';if(activeView==='backlog')loadBacklog(true);}catch(error){showNotice(error.message+' Review the Ideas source manually.',true);await openEntry(prior.path);}});el.saveNotice.appendChild(button); }
   async function saveEntry(replaceRevision) {
     if(!state.current) return;
     var payload={path:state.current,text:diskText(el.text.value),revision:state.revision}; if(replaceRevision) payload.replace_revision=replaceRevision;
@@ -97,7 +199,7 @@
   var nearbyTimer=null;
   function scheduleNearby(){clearTimeout(nearbyTimer);if(!state.current)return;nearbyTimer=setTimeout(loadNearby,500);}
   async function loadNearby(){if(!state.current)return;var seq=++state.nearbySeq, rev=String(Date.now())+'-'+seq, text=el.text.value;el.nearbyState.textContent='Reading draft…';try{var d=await post('/api/world/nearby',{text:text,path:state.current,client_revision:rev});if(seq!==state.nearbySeq)return;state.nearby=d;renderPreview(d.html);renderNearby(d.groups||{},rev,text);el.nearbyState.textContent='Live suggestions';}catch(e){el.nearbyState.textContent=e.message;}}
-  var groupsSpec=[['named_not_linked','Named, not linked'],['same_biome','Same biome'],['same_tags','Same tags']];
+  var groupsSpec=[['named_not_linked','Named, not linked'],['same_biome','Same biome'],['same_tags','Same tags'],['talks_about_same_things','Talks about the same things'],['linked_from_what_you_link','Linked from what you link']];
   function renderNearby(groups,rev,text){el.groups.innerHTML='';var any=false;groupsSpec.forEach(function(spec){var list=groups[spec[0]]||[];if(!list.length)return;any=true;var sec=document.createElement('section');sec.className='nearby-group';sec.innerHTML='<h3>'+esc(spec[1])+' <span>'+list.length+'</span></h3>';var cards=document.createElement('div');cards.className='nearby-cards';list.forEach(function(x){var card=document.createElement('article');card.className='nearby-card';var title=document.createElement('button');title.type='button';title.className='nearby-title';title.textContent=x.title||entryTitle(x);title.addEventListener('click',function(){findAndOpenReference(pathFromResult(x));});var top=document.createElement('div');top.className='nearby-card-top';top.appendChild(title);if(spec[0]==='named_not_linked'){var link=document.createElement('button');link.type='button';link.className='btn btn-small btn-quiet link-suggestion';link.textContent='Link';link.addEventListener('click',function(){applySuggestion(x,rev,text);});top.appendChild(link);}card.appendChild(top);var folder=document.createElement('span');folder.className='nearby-folder';folder.textContent=x.folder||x.path||'';card.appendChild(folder);if(x.reason){var reason=document.createElement('span');reason.className='nearby-reason';reason.textContent=x.reason;card.appendChild(reason);}cards.appendChild(card);});sec.appendChild(cards);el.groups.appendChild(sec);});if(!any)el.groups.innerHTML='<p class="muted nearby-empty">No nearby entries yet. Add references, places, or tags as you write.</p>';}
   function applySuggestion(x,rev,original){var start=x.start,end=x.end,expected=x.expected,now=el.text.value;if(String(x.client_revision||rev)!==rev||now!==original||now.slice(start,end)!==expected){scheduleNearby();el.nearbyState.textContent='Draft changed; refreshing suggestion';return;}var title=x.title||entryTitle(x),target=String(x.link_target||title).replace(/\.md$/i,'');var insert='[['+target+((expected!==title||target!==title)?'|'+expected:'')+']]';el.text.value=now.slice(0,start)+insert+now.slice(end);el.text.focus();el.text.setSelectionRange(start+insert.length,start+insert.length);setDirty();scheduleNearby();}
   async function findAndOpenReference(path){if(!path)return;try{var d=await get('/api/world/entry?path='+encodeURIComponent(path));$('referenceTitle').textContent=(d.entry&&d.entry.title)||entryTitle({path:path});$('referencePath').textContent=path;var box=$('referenceBody');box.textContent='';var raw=textareaText(d.text||''),lines=raw.split('\n'),header=[],at=0;
@@ -123,10 +225,10 @@
 
   // Explicit destination form: geography targets and taxonomy folder are
   // independent, and creation is only retried after an occupied-path error.
-  function beginCreate(seedTitle, fromName){showPane('create');$('newTitle').value=seedTitle||'';$('newOrigin').value=state.kept.join(', ');$('newFrom').value=fromName||'';$('createError').hidden=true;loadFolders();}
+  function beginCreate(seedTitle, fromName, idea){state.pendingIdea=idea||null;setWorldView('desk');showPane('create');$('newTitle').value=seedTitle||'';$('newOrigin').value=state.kept.join(', ');$('newFrom').value=fromName||'';$('createError').hidden=true;loadFolders();}
   async function loadFolders(){try{var d=await get('/api/world/tree'),folders=[],queue=(d.entries||[]).filter(function(x){return x.is_dir;}).map(function(x){return x.path||x.name;});while(queue.length){var path=queue.shift();folders.push(path);var child=await get('/api/world/tree?path='+encodeURIComponent(path));(child.entries||[]).forEach(function(x){if(x.is_dir)queue.push(x.path||path+'/'+x.name);});}var list=$('worldFolders');list.innerHTML='';Array.from(new Set(folders)).sort().forEach(function(p){var o=document.createElement('option');o.value=p;list.appendChild(o);});}catch(e){$('newFolder').placeholder='Enter the exact folder path';}}
-  $('newEntryBtn').addEventListener('click',function(){beginCreate();});$('welcomeNew').addEventListener('click',function(){beginCreate();});$('cancelCreate').addEventListener('click',function(){showPane(state.current?'entry':'welcome');});
-  el.createForm.addEventListener('submit',async function(e){e.preventDefault();var payload={folder:$('newFolder').value,title:$('newTitle').value.trim(),from_targets:$('newFrom').value.split(/\n/).map(function(s){return s.trim();}).filter(Boolean),tags:$('newTags').value.split(',').map(function(s){return s.trim().replace(/^#/,'');}).filter(Boolean),origin:$('newOrigin').value.split(/[\s,]+/).map(function(s){return s.trim();}).filter(Boolean),template:$('newTemplate').value.trim()||null};el.createError.hidden=true;try{var d=await post('/api/world/new',payload);await loadRoot();if(d.path)openEntry(d.path);}catch(err){el.createError.textContent=err.message;el.createError.hidden=false;}});
+  $('newEntryBtn').addEventListener('click',function(){beginCreate();});$('welcomeNew').addEventListener('click',function(){beginCreate();});$('cancelCreate').addEventListener('click',function(){state.pendingIdea=null;showPane(state.current?'entry':'welcome');});
+  el.createForm.addEventListener('submit',async function(e){e.preventDefault();var payload={folder:$('newFolder').value,title:$('newTitle').value.trim(),from_targets:$('newFrom').value.split(/\n/).map(function(s){return s.trim();}).filter(Boolean),tags:$('newTags').value.split(',').map(function(s){return s.trim().replace(/^#/,'');}).filter(Boolean),origin:$('newOrigin').value.split(/[\s,]+/).map(function(s){return s.trim();}).filter(Boolean),template:$('newTemplate').value.trim()||null};if(state.pendingIdea)payload.idea=state.pendingIdea;el.createError.hidden=true;try{var d=await post('/api/world/new',payload);await loadRoot();state.pendingIdea=null;if(payload.idea)$('backlogContent').dataset.loaded='no';if(d.path)await openEntry(d.path);if(d.idea_updated===false){state.retryIdea=payload.idea||null;showNotice(d.idea_error||'Entry created, but the idea was not struck through.',true);offerIdeaRetry();}}catch(err){el.createError.textContent=err.message;el.createError.hidden=false;}});
 
   // A small bench strip uses the same draw and pool routes as the main page.
   function saveKept(){try{localStorage.setItem(KEPT_KEY,JSON.stringify({v:1,words:state.kept}));}catch(_){}}

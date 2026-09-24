@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from entry import parse
+from file_manager import FileManager
 
 from vault import VaultManager
 from vault_index import VaultIndex
@@ -31,9 +32,69 @@ class WorldRoutesTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def request(self, method, path, query=None, body=None, world_index=None):
+    def request(self, method, path, query=None, body=None, world_index=None,
+                session=None, fm=None, word_index=None):
         return Request(method, path, query or {}, body or {}, vault=self.vault,
-                       world_index=world_index)
+                       world_index=world_index, session=session, fm=fm,
+                       word_index=word_index)
+
+    def test_phase_two_reports_lexicon_and_roller_use_canonical_paths(self):
+        os.makedirs(os.path.join(self.root, "Locations", "Biomes"))
+        with open(os.path.join(self.root, "Locations", "Biomes", "Fenaya.md"),
+                  "w", encoding="utf8") as f:
+            f.write("Green valley biome.\n")
+        with open(os.path.join(self.root, "People", "Mira.md"),
+                  "w", encoding="utf8") as f:
+            f.write("From: [[Locations/Biomes/Fenaya]]\n\nAlzerati glimmers here. #rework\n")
+        with open(os.path.join(self.root, "How-To.md"), "w", encoding="utf8") as f:
+            f.write("# Cheat Sheet\nMisconceptions\nMemory\n## Methods/Tools\n")
+        index = VaultIndex(self.vault, stat_interval=3600)
+        fm = FileManager()
+        session = SimpleNamespace(active_words=lambda: ["showful", "arthrosporic"])
+
+        matrix = dispatch(self.request("GET", "/api/world/matrix", world_index=index))
+        self.assertEqual(matrix.status, 200)
+        row = next(row for row in matrix.payload["data"]["rows"]
+                   if row["path"] == "Locations/Biomes/Fenaya.md")
+        self.assertIn("People/Mira.md", [entry["path"] for entry in
+                                      row["cells"]["People"]["entries"]])
+
+        health = dispatch(self.request("GET", "/api/world/health", world_index=index, fm=fm))
+        self.assertEqual(health.status, 200)
+        self.assertIn("People/Mira.md", [row["path"] for row in
+                                         health.payload["data"]["sections"]["rework"]])
+
+        lexicon = dispatch(self.request("GET", "/api/world/lexicon", {"q": "alzerati"},
+                                        world_index=index, fm=fm))
+        self.assertEqual(lexicon.status, 200)
+        word = next(row for row in lexicon.payload["data"]["entries"]
+                    if row["word"] == "alzerati")
+        self.assertEqual(word["uses"][0]["path"], "People/Mira.md")
+
+        roll = dispatch(self.request("POST", "/api/world/roll", body={"entry": "People/Mira.md"},
+                                     world_index=index, session=session))
+        self.assertEqual(roll.status, 200)
+        self.assertEqual(roll.payload["data"]["entry"]["path"], "People/Mira.md")
+
+    def test_backlog_creation_strikes_exact_idea_and_reports_stale_idea(self):
+        os.makedirs(os.path.join(self.root, "Ideas"))
+        with open(os.path.join(self.root, "Ideas", "List.md"), "w", encoding="utf8") as f:
+            f.write("# Ideas\n* A lantern made of rain\n* Another idea\n")
+        listed = dispatch(self.request("GET", "/api/world/backlog"))
+        self.assertEqual(listed.status, 200)
+        first, second = listed.payload["data"]["ideas"]
+        created = dispatch(self.request("POST", "/api/world/new", body={
+            "folder": "People", "title": "Lantern Maker", "idea": first}))
+        self.assertEqual(created.status, 200)
+        self.assertTrue(created.payload["data"]["idea_updated"])
+        self.assertIn("~~A lantern made of rain~~", self.vault.read("Ideas/List.md")[0])
+
+        stale = dispatch(self.request("POST", "/api/world/new", body={
+            "folder": "People", "title": "Second Maker", "idea": second}))
+        self.assertEqual(stale.status, 200)
+        self.assertFalse(stale.payload["data"]["idea_updated"])
+        self.assertTrue(self.vault.read("People/Second Maker.md")[1])
+        self.assertIn("* Another idea", self.vault.read("Ideas/List.md")[0])
 
     def test_tree_and_entry_read_return_specified_data(self):
         response = dispatch(self.request("GET", "/api/world/tree", {"path": "People"}))

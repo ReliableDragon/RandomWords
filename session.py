@@ -69,6 +69,12 @@ class Session():
     return self.manager.context
 
 
+  def active_words(self) -> list[str]:
+    """Copy the current word pool while holding the session lock."""
+    with self._lock:
+      return list(self.manager.context.get('words', ()))
+
+
   # Every pool with its size. Never the words themselves: the largest is six
   # megabytes of JSON, to support a draw that takes a microsecond here.
   def pools(self) -> list[dict]:

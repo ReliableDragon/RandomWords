@@ -338,6 +338,14 @@ def _render_new_text(body):
 
 def create_entry(req):
     body = req.body
+    idea = body.get("idea")
+    if idea is not None and (not isinstance(idea, dict) or
+            not isinstance(idea.get("path"), str) or
+            not isinstance(idea.get("revision"), str) or
+            not isinstance(idea.get("start"), int) or isinstance(idea.get("start"), bool) or
+            not isinstance(idea.get("end"), int) or isinstance(idea.get("end"), bool) or
+            not isinstance(idea.get("expected"), str)):
+        return _fail(400, "Idea reference must include its path, revision, exact span and text.")
     folder, title = body.get("folder", ""), body.get("title")
     if not isinstance(folder, str) or not isinstance(title, str) or not title.strip():
         return _fail(400, "A folder and entry title are required.")
@@ -381,7 +389,44 @@ def create_entry(req):
         result = req.vault.create(path, text)
     except DestinationConflict as error:
         return _fail(409, str(error), {"path": error.existing_path})
+    if idea is not None:
+        from world_backlog import IdeaSpanMismatch, strike_idea
+        try:
+            update = strike_idea(req.vault, idea["path"], idea["revision"],
+                                 idea["start"], idea["end"], idea["expected"])
+            result["idea_updated"] = True
+            result["idea_revision"] = update["revision"]
+        except (RevisionConflict, IdeaSpanMismatch, InvalidPath, UnreadableSource) as error:
+            # Creation cannot be rolled back safely: report the separate idea
+            # update explicitly so the user can review and retry it.
+            result["idea_updated"] = False
+            result["idea_error"] = str(error)
     return _ok("Entry created.", result)
+
+
+def backlog(req):
+    from world_backlog import list_ideas
+    return _ok("Ideas loaded.", {"ideas": list_ideas(req.vault)})
+
+
+def strike_idea_route(req):
+    from world_backlog import IdeaSpanMismatch, strike_idea
+    body = req.body
+    if (not isinstance(body.get("path"), str) or
+            not isinstance(body.get("revision"), str) or
+            not isinstance(body.get("start"), int) or isinstance(body.get("start"), bool) or
+            not isinstance(body.get("end"), int) or isinstance(body.get("end"), bool) or
+            not isinstance(body.get("expected"), str)):
+        return _fail(400, "Idea path, revision, exact span and text are required.")
+    try:
+        result = strike_idea(req.vault, body["path"], body["revision"],
+                             body["start"], body["end"], body["expected"])
+    except RevisionConflict as error:
+        return _fail(409, str(error), {"text": error.current_text,
+                                      "revision": error.current_revision})
+    except IdeaSpanMismatch as error:
+        return _fail(409, str(error))
+    return _ok("Idea marked as started.", result)
 
 
 def _nearby_groups(req, item):
@@ -427,11 +472,86 @@ def nearby(req):
         try:
             supplied = fn(item)
             if isinstance(supplied, dict):
-                for key in groups:
-                    groups[key] = supplied.get(key, groups[key])
+                for key, cards in supplied.items():
+                    if isinstance(cards, list):
+                        groups[key] = cards
         except (TypeError, ValueError):
             pass
     return _ok("Draft preview ready.", {"client_revision": revision, "html": html, "groups": groups})
+
+
+def matrix(req):
+    _ensure_index(req)
+    from world_reports import coverage_matrix
+    return _ok("Coverage loaded.", coverage_matrix(req.world_index))
+
+
+def health(req):
+    _ensure_index(req)
+    from world_reports import health_report
+    sections = health_report(req.world_index)
+    from world_names import names_without_entries
+    sections["names_without_entry"] = names_without_entries(req.world_index)
+    from world_lexicon import WorldLexicon
+    lexicon = WorldLexicon(req.world_index, req.fm).query()
+    uses = {row["word"]: row["uses"] for row in lexicon["entries"]}
+    sections["spelling_drift"] = [
+        {**row, "path": uses[row["from"]][0]["path"],
+         "other_path": uses[row["to"]][0]["path"]}
+        for row in lexicon["drift"]
+        if uses.get(row["from"]) and uses.get(row["to"])
+    ]
+    return _ok("Upkeep loaded.", {"sections": sections,
+                                  "counts": {key: len(rows) for key, rows in sections.items()}})
+
+
+def lexicon(req):
+    _ensure_index(req)
+    from world_lexicon import WorldLexicon
+    query = req.query.get("q", "")
+    biome = req.query.get("biome", "")
+    once = req.query.get("once", "")
+    if (not isinstance(query, str) or len(query) > 100 or
+            not isinstance(biome, str) or len(biome) > 500 or
+            once not in ("", "0", "1", "false", "true")):
+        return _fail(400, "Invalid lexicon filters.")
+    if biome and (biome not in req.world_index.entries or
+                  not biome.startswith("Locations/Biomes/")):
+        return _fail(400, "Biome must be a canonical biome path.")
+    data = WorldLexicon(req.world_index, req.fm, req.word_index).query(
+        q=query, biome=biome or None, once=once in ("1", "true"))
+    for row in data["drift"]:
+        row["paths"] = list(dict.fromkeys(
+            row.get("from_paths", ()) + row.get("to_paths", ())))
+    data["biomes"] = [{"path": path, "title": entry.title}
+                      for path, entry in sorted(req.world_index.entries.items())
+                      if path.startswith("Locations/Biomes/")]
+    return _ok("Lexicon loaded.", data)
+
+
+def roll(req):
+    _ensure_index(req)
+    from world_roller import roll as make_roll
+    body = req.body
+    facet = body.get("facet")
+    entry = body.get("entry")
+    words = body.get("words")
+    if facet is not None and (not isinstance(facet, str) or not facet.strip()):
+        return _fail(400, "Facet must be nonempty text.")
+    if entry is not None and (not isinstance(entry, str) or not entry):
+        return _fail(400, "Entry must be a canonical vault path.")
+    if words is not None and (not isinstance(words, list) or len(words) != 2 or
+                              any(not isinstance(word, str) or not word for word in words)):
+        return _fail(400, "Words must be exactly two nonempty strings.")
+    try:
+        cheat_sheet, _ = req.vault.read("How-To.md")
+        active_words = req.session.active_words()
+        result = make_roll(req.world_index.entries, req.world_index.backlinks,
+                           active_words, cheat_sheet, facet=facet, entry=entry,
+                           words=words)
+    except ValueError as error:
+        return _fail(400, str(error))
+    return _ok("Prompt rolled.", result)
 
 
 def _ensure_index(req):
@@ -447,7 +567,13 @@ ROUTES = {
     ("GET", "/api/world/tags"): tags,
     ("POST", "/api/world/entry"): save_entry,
     ("POST", "/api/world/new"): create_entry,
+    ("GET", "/api/world/backlog"): backlog,
+    ("POST", "/api/world/backlog/strike"): strike_idea_route,
     ("POST", "/api/world/nearby"): nearby,
+    ("GET", "/api/world/matrix"): matrix,
+    ("GET", "/api/world/health"): health,
+    ("GET", "/api/world/lexicon"): lexicon,
+    ("POST", "/api/world/roll"): roll,
 }
 
 

@@ -116,6 +116,16 @@ notes, and suggest existing entries mentioned in a draft or sharing its biome
 or tags. It reads the vault in place; no import or index file is written to
 the vault.
 
+The World page also has **Coverage**, **Upkeep**, **Lexicon**, and **Backlog**
+views. Coverage counts each canonical biome membership once and shows how a
+note reaches that biome. Upkeep lists broken links, isolated and unreferenced
+notes, stubs, `#rework` tags, asides, missing names, and possible spelling
+drift. The lexicon compares vault body words with `dicts/450k_words.txt` and
+shows where each coined word appears, along with matches in the book index.
+Backlog reads `Ideas/` bullets; starting an entry marks its source idea only
+after creation, using the idea note's revision. The prompt roller combines a
+facet from `How-To.md`, existing entries, and two words from the active pool.
+
 Saves require the exact revision returned when the note was opened. If
 Obsidian changed the file, the desk shows both versions before a replacement.
 It keeps the replaced bytes in `~/.randomwords/recovery` and can keep an
