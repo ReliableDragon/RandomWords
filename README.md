@@ -96,10 +96,15 @@ parsed corpus is 1.8 million words, comfortably inside the cache's two
 million word budget, so nothing is evicted in practice.
 
 The page has three columns: a library on the left, the bench in the middle,
-and pools on the right. Click a text to load it, then draw. The pools pane
+and pools on the right. Click a text to load it, then draw. A segmented
+toggle beside the draw count switches between **Flat** sampling (equal
+probability for each unique word) and **Weighted** sampling (probability
+proportional to word occurrences in the source text). The pools pane
 saves the active pool under a name, writes a pool to disk so it survives a
-restart, combines two pools with the three set operations, and forgets ones
-you are done with. A command line across the
+restart, and lets you check pools or recent texts to draw one word from each
+in order. Its Quick intersect form filters one checked source against a
+dictionary and saves the result as a pool; the full combine form remains for
+other set operations. A command line across the
 bottom runs the same command language the terminal does, so anything without
 a button stays reachable; `/` focuses it and the up arrow walks its history. The last twenty draws stay on screen, and clicking any
 word keeps it; kept words survive a restart in browser storage and can be
@@ -115,6 +120,19 @@ Markdown notes, create entries at an explicit folder path, preview and edit
 notes, and suggest existing entries mentioned in a draft or sharing its biome
 or tags. It reads the vault in place; no import or index file is written to
 the vault.
+
+The **Map** tab shows the whole-vault graph, the one- or two-link neighborhood
+around an open entry, and a biome-sector view. It distinguishes resolved,
+unresolved, and ambiguous links, marks stubs and `#rework` notes, and can show
+Nearby suggestions as ghost links. Its read-only endpoint is
+`GET /api/world/graph`; add `?around=<canonical-vault-path>&depth=1` or
+`depth=2` for a local graph, or omit `around` for the whole vault. Obsidian
+path color groups are read from `.obsidian/graph.json`.
+
+The preview evaluates a bounded subset of Obsidian Base filters: nested
+`and`/`or` expressions using `file.links.contains(this.file.name)` and
+`file.path.contains("…")`. Unsupported expressions remain visible as code
+with a diagnostic; they are never partly evaluated.
 
 The World page also has **Coverage**, **Upkeep**, **Lexicon**, and **Backlog**
 views. Coverage counts each canonical biome membership once and shows how a
@@ -139,14 +157,17 @@ BOM, newline style, and final newline convention.
 |---|---|---|---|
 | `GET` | `/api/library` | `?path=myth` | Folders and texts, with a word count for texts already read |
 | `GET` | `/api/pools` | | Every pool with its size |
-| `GET` | `/api/status` | | Cache statistics and pools |
+| `GET` | `/api/mode` | | Active sampling mode (`uniform` or `weighted`) |
+| `POST` | `/api/mode` | `{mode}` | Sets sampling mode (`uniform` or `weighted`) |
+| `GET` | `/api/status` | | Cache statistics, pools, and active sampling mode |
 | `POST` | `/api/pools/load` | `{source}` | Loads a text or a saved pool |
 | `POST` | `/api/pools/random` | `{under, mode}` | Loads a random text; `mode` is `flat` or `walk` |
 | `POST` | `/api/pools/save` | `{name, from, force}` | Names the active pool, or a text |
 | `POST` | `/api/pools/write` | `{name, pool, force}` | Writes a pool to disk, as `custom/{name}.txt` |
-| `POST` | `/api/pools/op` | `{op, a, b, out}` | Union, difference or intersection |
+| `POST` | `/api/pools/op` | `{op, sources, out, force}` | Union, difference or intersection of two or more pools or texts |
 | `DELETE` | `/api/pools/{name}` | | Forgets a pool |
-| `POST` | `/api/draw` | `{count}` | Draws from the active pool, capped at 1000 |
+| `POST` | `/api/draw` | `{count, weighted}` | Draws from the active pool, capped at 1000 |
+| `POST` | `/api/draw/multi` | `{sources}` | Draws one uniform word from every specified pool, text, or folder, capped at 1000 sources |
 | `POST` | `/api/command` | `{line}` | Runs a line of the command language |
 
 Pool contents never cross this boundary, only sizes and the words actually
@@ -246,8 +267,10 @@ Arguments in `<angle brackets>` are required, `[square brackets]` optional.
 
 | Command | Description |
 |---|---|
-| `word`, `next`, *(empty line)* | Print one random word from the active pool. |
-| `<N>` (a number) | Print `N` random words from the active pool on one line, drawn without replacement so they are always distinct. If `N` is larger than the pool, it falls back to drawing with replacement so you still get `N` words, with repeats. |
+| `word`, `next`, *(empty line)* | Print one random word from the active pool using the active sampling mode. |
+| `<N>` (a number) | Print `N` random words from the active pool on one line, drawn without replacement so they are always distinct (falls back to with-replacement if `N` exceeds pool size). Honors active sampling mode. |
+| `w [N]`, `weighted [N]`, `oword [N]` | Print `N` random words drawn with probability proportional to word occurrences in the source text, without replacement where possible. |
+| `mode [uniform\|weighted]`, `sampling` | Inspect or change the active sampling mode (`uniform` or `weighted`). Affects subsequent standard draws. |
 | `gaw <alias\|r>...`, `get_alias_words` | Print one random word from each named alias, space-separated. Any argument that is `r`, `rand`, or `random` is replaced with a randomly chosen alias (never `words`), and when that happens the chosen alias names are appended in `[brackets]`. Arguments cannot contain `/` or `.`, so files cannot be used here; use `mul` for that. |
 | `mul <folder\|file\|alias>...`, `mfgw`, `multi_folder_get_words` | Print one random word per argument. A **folder** picks a random `.txt` under it and then a random word from that; a **file** (ending in `.txt`) picks a random word from that file; an **alias** picks a random word from the alias. Handy for "one word from myth, one from geology". |
 
@@ -561,6 +584,7 @@ beyond `ruff` itself; the tool and its tests stay standard-library only.
   450k dictionary takes about a quarter of a second each time. The server
   caches, the terminal deliberately does not, because a person types slower
   than a parse.
-- Sampling is uniform over distinct spellings, not over occurrences, so rare
-  words are as likely as common ones. That is usually the point, but it is
-  worth knowing.
+- By default, sampling is uniform over distinct spellings, so rare
+  words are as likely as common ones. Occurrence-weighted sampling is also
+  supported via `w [N]`, `mode weighted`, or the **Flat / Weighted** toggle in
+  the browser interface.

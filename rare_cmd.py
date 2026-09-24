@@ -49,7 +49,11 @@ class Rare(IndexCommand):
           f'or fewer; keeping the current pool.')
 
     books = 'one book' if max_texts == 1 else f'at most {max_texts} books'
+    active_counts = getattr(context, 'counts', {}).get('words', {})
+    counts = {w: active_counts.get(w, 1) for w in kept}
+    tokens = sum(counts.values())
     return CommandResult(
         message=f'{len(kept):,} of {len(words):,} words are in {books}.',
         updates={'words': kept},
+        counts={'words': counts},
         data={'size': len(kept), 'from': len(words), 'max_texts': max_texts})

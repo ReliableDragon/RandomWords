@@ -51,10 +51,17 @@
           <input id="countInput" class="stepper-input" type="number" inputmode="numeric" min="1" max="1000" step="1" value="1" aria-label="Words to draw">
           <button id="stepUp" class="stepper-btn" type="button" aria-label="Increase count">+</button>
         </div>
+        <div class="sampling-toggle" role="radiogroup" aria-label="Sampling mode">
+          <button id="modeFlatBtn" class="toggle-btn is-active" type="button" role="radio" aria-checked="true" title="Flat: each unique word is equally likely">Flat</button>
+          <button id="modeWeightedBtn" class="toggle-btn" type="button" role="radio" aria-checked="false" title="Weighted: probability proportional to word occurrences in the text">Weighted</button>
+        </div>
         <button id="drawBtn" class="btn btn-primary" type="button">
           Draw <kbd class="key-hint">Space</kbd>
         </button>
+        <button id="multiDrawBtn" class="btn btn-quiet" type="button" disabled
+                aria-describedby="multiDrawHelp">Draw one each</button>
       </div>
+      <p id="multiDrawHelp" class="draw-help">Check pools or recent texts to draw one word from each, in check order.</p>
     </section>
 
     <section class="history" aria-label="Draw history">
@@ -86,6 +93,13 @@
 
     <div id="poolsList" class="pools-list">
       <p class="empty-note">No pools yet.</p>
+    </div>
+
+    <div class="recent-texts-head">
+      <h3 class="pool-form-title">Recent texts</h3>
+    </div>
+    <div id="recentTextsList" class="recent-texts-list">
+      <p class="empty-note">Texts you load will collect here.</p>
     </div>
 
     <div class="pool-forms">
@@ -126,27 +140,52 @@
 
       <form id="combineForm" class="pool-form">
         <h3 class="pool-form-title">Combine</h3>
+        <p class="pool-form-note">Check pools or recent texts above, in the order you want them. Draw one each needs 1; combining needs 2 or more.</p>
+        <div id="combineSelection" class="selection-chips">
+          <p class="empty-note">Nothing checked yet.</p>
+        </div>
         <div class="pool-form-row combine-row">
-          <select id="combineA" class="select-input" aria-label="First pool" required></select>
           <select id="combineOp" class="select-input select-op" aria-label="Operation">
             <option value="union">&cup; union</option>
             <option value="difference">&minus; difference</option>
             <option value="intersection">&cap; intersection</option>
           </select>
-          <select id="combineB" class="select-input" aria-label="Second pool" required></select>
         </div>
-        <p class="pool-form-note">Difference (&minus;) keeps the first pool&rsquo;s words that are not in the second.</p>
+        <p class="pool-form-note">Difference (&minus;) keeps the first checked item&rsquo;s words that are not in any of the rest.</p>
         <div class="pool-form-row">
           <input id="combineOut" class="text-input" type="text"
                  placeholder="Name for the result (blank overwrites the first)"
                  autocomplete="off" aria-label="Name for the result">
-          <button class="btn btn-quiet btn-small" type="submit">Combine</button>
+          <button id="combineSubmit" class="btn btn-quiet btn-small" type="submit" disabled>Combine</button>
         </div>
         <div id="combineConfirm" class="confirm-row" hidden>
           <span id="combineConfirmText" class="confirm-text"></span>
           <div class="confirm-actions">
             <button id="combineConfirmYes" class="btn btn-small btn-primary" type="button">Yes, overwrite</button>
             <button id="combineConfirmNo" class="btn btn-small btn-quiet" type="button">No</button>
+          </div>
+        </div>
+      </form>
+
+      <form id="quickIntersectForm" class="pool-form">
+        <h3 class="pool-form-title">Quick intersect</h3>
+        <p class="pool-form-note">Check exactly one pool or recent text above, choose a dictionary, and save their shared words as a pool.</p>
+        <div class="pool-form-row">
+          <select id="quickIntersectDictionary" class="select-input" aria-label="Dictionary to intersect with" required disabled>
+            <option value="">Loading dictionaries…</option>
+          </select>
+        </div>
+        <div class="pool-form-row">
+          <input id="quickIntersectOut" class="text-input" type="text"
+                 placeholder="Name for the result pool" autocomplete="off"
+                 aria-label="Name for the intersection result pool" required>
+          <button id="quickIntersectSubmit" class="btn btn-quiet btn-small" type="submit" disabled>Intersect</button>
+        </div>
+        <div id="quickIntersectConfirm" class="confirm-row" hidden>
+          <span id="quickIntersectConfirmText" class="confirm-text"></span>
+          <div class="confirm-actions">
+            <button id="quickIntersectConfirmYes" class="btn btn-small btn-primary" type="button">Yes, overwrite</button>
+            <button id="quickIntersectConfirmNo" class="btn btn-small btn-quiet" type="button">No</button>
           </div>
         </div>
       </form>

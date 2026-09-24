@@ -279,11 +279,13 @@ def _inline(text: str, index=None) -> str:
     return escaped
 
 
-def render(entry: Entry, resolve_link=None) -> str:
+def render(entry: Entry, resolve_link=None, base_entries=None, base_resolve=None) -> str:
     """Render the supported vault subset to safe HTML."""
     lines = entry.body.splitlines()
     out, paragraph, list_open, quote_open = [], [], False, False
     in_fence = False
+    fence_size = 3
+    fence_language = ""
     fence_lines = []
     def flush():
         if paragraph:
@@ -291,19 +293,40 @@ def render(entry: Entry, resolve_link=None) -> str:
             paragraph.clear()
     for line in lines:
         if in_fence:
-            if re.match(r"^\s*```", line):
+            close = re.match(r"^\s*(`{3,})\s*$", line)
+            if close and len(close.group(1)) >= fence_size:
                 fence_lines.append(line)
-                out.append("<pre><code>" + escape("\n".join(fence_lines)) + "</code></pre>")
+                if fence_language == "base" and base_entries is not None:
+                    from base_filters import evaluate
+                    result = evaluate("\n".join(fence_lines[1:-1]), entry, base_entries, base_resolve)
+                    if result.supported:
+                        cards = []
+                        for path in result.paths:
+                            label = path.rsplit("/", 1)[-1]
+                            if label.lower().endswith(".md"):
+                                label = label[:-3]
+                            href = "/world/entry?path=" + quote(path, safe="/")
+                            cards.append(f'<li><a href="{escape(href, quote=True)}">{escape(label)}</a></li>')
+                        out.append('<div class="base-results"><ul>' + "".join(cards) + '</ul></div>')
+                    else:
+                        out.append('<div class="base-diagnostic">' + escape(result.diagnostic or "Unsupported Base filter") + '</div>')
+                        out.append("<pre><code>" + escape("\n".join(fence_lines)) + "</code></pre>")
+                else:
+                    out.append("<pre><code>" + escape("\n".join(fence_lines)) + "</code></pre>")
                 fence_lines = []
                 in_fence = False
+                fence_language = ""
             else:
                 fence_lines.append(line)
             continue
-        if re.match(r"^\s*```", line):
+        opening = re.match(r"^\s*(`{3,})([A-Za-z0-9_-]*)\s*$", line)
+        if opening:
             flush()
             if list_open: out.append("</ul>"); list_open = False
             if quote_open: out.append("</blockquote>"); quote_open = False
             in_fence = True
+            fence_size = len(opening.group(1))
+            fence_language = opening.group(2).lower()
             fence_lines = [line]
             continue
         if not line.strip():

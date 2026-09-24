@@ -34,6 +34,8 @@ DOCUMENTED_SYNTAXES = [
   ('which whale', 'which'),
   ('rare', 'rare'), ('rare 3', 'rare'),
   ('like whale', 'like'), ('like whale 5', 'like'),
+  ('w', 'weighted_word'), ('w 5', 'weighted_word'), ('weighted', 'weighted_word'),
+  ('mode', 'mode'), ('mode weighted', 'mode'), ('mode uniform', 'mode'),
 ]
 
 

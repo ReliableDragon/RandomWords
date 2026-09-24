@@ -29,16 +29,16 @@ class CachingFileManager(FileManager):
     super().__init__(root)
     self.max_words = max_words
     self._lock = threading.Lock()
-    self._entries = OrderedDict()   # library path -> (mtime, words)
+    self._entries = OrderedDict()   # library path -> (mtime, words, counts)
     self._words = 0
     self.hits = 0
     self.misses = 0
 
 
-  # The words in a file, from memory when we have them.
+  # The words and occurrence counts in a file, from memory when we have them.
   #
-  # The returned list is shared with the cache and must not be mutated.
-  def get_words(self, path: str) -> list[str]:
+  # The returned collections are shared with the cache and must not be mutated.
+  def get_words_and_counts(self, path: str) -> tuple[list[str], dict[str, int]]:
     stamp = self._mtime(path)
 
     if stamp is not None:
@@ -47,15 +47,27 @@ class CachingFileManager(FileManager):
         if entry is not None and entry[0] == stamp:
           self._entries.move_to_end(path)
           self.hits += 1
-          return entry[1]
+          return entry[1], entry[2]
 
     # Parsed outside the lock on purpose. A parse held under it would queue
     # every other request behind one click on a book.
-    words = super().get_words(path)
+    words, counts = super().get_words_and_counts(path)
     self.misses += 1
     if stamp is not None:
-      self._store(path, stamp, words)
+      self._store(path, stamp, words, counts)
+    return words, counts
+
+
+  # The words in a file, from memory when we have them.
+  def get_words(self, path: str) -> list[str]:
+    words, _ = self.get_words_and_counts(path)
     return words
+
+
+  # The word counts in a file, from memory when we have them.
+  def get_word_counts(self, path: str) -> dict[str, int]:
+    _, counts = self.get_words_and_counts(path)
+    return counts
 
 
   # The size of a file we have already read, or None. Never parses, which is
@@ -64,6 +76,13 @@ class CachingFileManager(FileManager):
     with self._lock:
       entry = self._entries.get(path)
       return len(entry[1]) if entry is not None else None
+
+
+  # Total token occurrences in a file already read, or None.
+  def cached_tokens(self, path: str) -> int | None:
+    with self._lock:
+      entry = self._entries.get(path)
+      return sum(entry[2].values()) if entry is not None else None
 
 
   def stats(self) -> dict:
@@ -102,17 +121,17 @@ class CachingFileManager(FileManager):
       return None
 
 
-  def _store(self, path, stamp, words):
+  def _store(self, path, stamp, words, counts):
     with self._lock:
       previous = self._entries.pop(path, None)
       if previous is not None:
         self._words -= len(previous[1])
 
-      self._entries[path] = (stamp, words)
+      self._entries[path] = (stamp, words, counts)
       self._words += len(words)
 
       # Evict oldest first, but never the entry just stored: a single pool
       # larger than the whole budget should still be usable.
       while self._words > self.max_words and len(self._entries) > 1:
-        _, (_, evicted) = self._entries.popitem(last=False)
+        _, (_, evicted, _) = self._entries.popitem(last=False)
         self._words -= len(evicted)

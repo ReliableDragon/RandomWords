@@ -4,6 +4,7 @@ import re
 import logging
 import random
 import tempfile
+from collections import Counter
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +127,10 @@ class FileManager():
   # Gets all of the words present in a file.
   #
   # path: A library path to the file to read.
-  # Returns: The distinct lower-cased words in the file.
+  # Returns: (words, counts) where words is the sorted distinct lower-cased
+  # words and counts is a dict mapping each word to its occurrence count.
   # Raises: InvalidPath, or UnreadableSource if the file cannot be read.
-  def get_words(self, path: str) -> list[str]:
+  def get_words_and_counts(self, path: str) -> tuple[list[str], dict[str, int]]:
     full = self.resolve(path)
 
     try:
@@ -141,9 +143,21 @@ class FileManager():
 
     txt = self.remove_gutenberg(txt)
     tokens = WORD_RE.findall(txt)
-    # Lower-case before de-duplicating, so a word that appears both
-    # capitalised and not is not twice as likely to be chosen.
-    return sorted({t.lower() for t in tokens if any(c.isalpha() for c in t)})
+    lowered = [t.lower() for t in tokens if any(c.isalpha() for c in t)]
+    counts = dict(Counter(lowered))
+    return sorted(counts.keys()), counts
+
+  # Returns: The distinct lower-cased words in the file.
+  # Raises: InvalidPath, or UnreadableSource if the file cannot be read.
+  def get_words(self, path: str) -> list[str]:
+    words, _ = self.get_words_and_counts(path)
+    return words
+
+  # Returns: A dict mapping distinct lower-cased words to occurrence counts.
+  # Raises: InvalidPath, or UnreadableSource if the file cannot be read.
+  def get_word_counts(self, path: str) -> dict[str, int]:
+    _, counts = self.get_words_and_counts(path)
+    return counts
 
 
   # Lists a folder, or the library root when no path is given.

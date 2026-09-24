@@ -2,7 +2,10 @@
   'use strict';
 
   var KEPT_KEY = 'randomwords.kept.v1';
+  var SAMPLING_MODE_KEY = 'randomwords.sampling_mode.v1';
+  var RECENT_TEXTS_KEY = 'randomwords.recent_texts.v1';
   var HISTORY_LIMIT = 20;
+  var RECENT_TEXTS_LIMIT = 8;
 
   var state = {
     library: new Map(),      // library path -> entries[]
@@ -10,15 +13,22 @@
     loading: new Set(),      // library paths currently being fetched
     currentSource: null,     // { path, size } | null
     poolSize: null,
+    poolTokens: null,
+    samplingMode: 'uniform', // 'uniform' | 'weighted'
+    wordCounts: {},          // word -> occurrence count
     current: [],             // words from the most recent draw
     history: [],             // words drawn before that, most recent first
+    lastMultiDrawSources: null, // display labels for the latest one-each draw
     kept: [],                // kept words, in the order they were kept
     busy: false,
     drawSeq: 0,              // guards against an out-of-order draw response
     pools: [],               // every pool, as last reported by the server
+    recentTexts: [],         // {path, label}, most-recent-first, MRU only
+    selection: [],           // {kind: 'pool'|'text', id}, in check order
     pendingSave: null,       // name awaiting a yes/no on the save form, or null
     pendingWrite: null,      // name awaiting a yes/no on the write form, or null
     pendingCombine: null,    // body awaiting a yes/no on the combine form, or null
+    pendingQuickIntersect: null, // body awaiting a yes/no for quick intersect
     pendingCommand: null,    // line awaiting a yes/no on the command line, or null
     cmdLog: [],              // {kind, text} entries shown in the command output
     cmdHistory: [],          // lines run this session, oldest first
@@ -35,6 +45,9 @@
     currentWords: document.getElementById('currentWords'),
     sourceLine: document.getElementById('sourceLine'),
     drawBtn: document.getElementById('drawBtn'),
+    multiDrawBtn: document.getElementById('multiDrawBtn'),
+    modeFlatBtn: document.getElementById('modeFlatBtn'),
+    modeWeightedBtn: document.getElementById('modeWeightedBtn'),
     countInput: document.getElementById('countInput'),
     stepUp: document.getElementById('stepUp'),
     stepDown: document.getElementById('stepDown'),
@@ -47,6 +60,7 @@
     toastMessage: document.getElementById('toastMessage'),
     toastClose: document.getElementById('toastClose'),
     poolsList: document.getElementById('poolsList'),
+    recentTextsList: document.getElementById('recentTextsList'),
     poolSaveForm: document.getElementById('poolSaveForm'),
     poolSaveName: document.getElementById('poolSaveName'),
     saveConfirm: document.getElementById('saveConfirm'),
@@ -61,14 +75,22 @@
     writeConfirmYes: document.getElementById('writeConfirmYes'),
     writeConfirmNo: document.getElementById('writeConfirmNo'),
     combineForm: document.getElementById('combineForm'),
-    combineA: document.getElementById('combineA'),
-    combineB: document.getElementById('combineB'),
+    combineSelection: document.getElementById('combineSelection'),
     combineOp: document.getElementById('combineOp'),
     combineOut: document.getElementById('combineOut'),
+    combineSubmit: document.getElementById('combineSubmit'),
     combineConfirm: document.getElementById('combineConfirm'),
     combineConfirmText: document.getElementById('combineConfirmText'),
     combineConfirmYes: document.getElementById('combineConfirmYes'),
     combineConfirmNo: document.getElementById('combineConfirmNo'),
+    quickIntersectForm: document.getElementById('quickIntersectForm'),
+    quickIntersectDictionary: document.getElementById('quickIntersectDictionary'),
+    quickIntersectOut: document.getElementById('quickIntersectOut'),
+    quickIntersectSubmit: document.getElementById('quickIntersectSubmit'),
+    quickIntersectConfirm: document.getElementById('quickIntersectConfirm'),
+    quickIntersectConfirmText: document.getElementById('quickIntersectConfirmText'),
+    quickIntersectConfirmYes: document.getElementById('quickIntersectConfirmYes'),
+    quickIntersectConfirmNo: document.getElementById('quickIntersectConfirmNo'),
     cmdForm: document.getElementById('cmdForm'),
     cmdInput: document.getElementById('cmdInput'),
     cmdOutput: document.getElementById('cmdOutput'),
@@ -82,6 +104,10 @@
 
   function fmtWords(n) {
     return n.toLocaleString('en-US') + (n === 1 ? ' word' : ' words');
+  }
+
+  function fmtTokens(n) {
+    return n.toLocaleString('en-US') + (n === 1 ? ' token' : ' tokens');
   }
 
   function baseName(path) {
@@ -333,9 +359,11 @@
     apiPost('/api/pools/load', { source: path })
       .then(function (data) {
         if (!data) return;
+        adoptServerPool(data.pools);
         state.currentSource = { path: path, size: data.data.size };
         state.poolSize = data.data.size;
         updateCachedSize(path, data.data.size);
+        pushRecentText(path);
         renderTree();
         renderPools(data.pools);
         return performDraw(getCount());
@@ -349,11 +377,13 @@
     apiPost('/api/pools/random', { under: '', mode: mode })
       .then(function (data) {
         if (!data) return;
+        adoptServerPool(data.pools);
         var source = data.data.source;
         var size = data.data.size;
         state.currentSource = { path: source, size: size };
         state.poolSize = size;
         updateCachedSize(source, size);
+        pushRecentText(source);
         renderTree();
         renderPools(data.pools);
         return performDraw(getCount());
@@ -383,22 +413,57 @@
   el.stepDown.addEventListener('click', function () { setCount(getCount() - 1); });
   el.countInput.addEventListener('change', function () { setCount(getCount()); });
 
+  function setSamplingMode(mode, syncServer) {
+    if (mode !== 'uniform' && mode !== 'weighted') mode = 'uniform';
+    state.samplingMode = mode;
+    try {
+      localStorage.setItem(SAMPLING_MODE_KEY, mode);
+    } catch (_) {}
+    renderModeToggle();
+    if (syncServer) {
+      apiPost('/api/mode', { mode: mode });
+    }
+  }
+
+  function renderModeToggle() {
+    var isWeighted = state.samplingMode === 'weighted';
+    if (el.modeFlatBtn && el.modeWeightedBtn) {
+      el.modeFlatBtn.classList.toggle('is-active', !isWeighted);
+      el.modeFlatBtn.setAttribute('aria-checked', !isWeighted ? 'true' : 'false');
+      el.modeWeightedBtn.classList.toggle('is-active', isWeighted);
+      el.modeWeightedBtn.setAttribute('aria-checked', isWeighted ? 'true' : 'false');
+    }
+  }
+
+  if (el.modeFlatBtn) {
+    el.modeFlatBtn.addEventListener('click', function () { setSamplingMode('uniform', true); });
+  }
+  if (el.modeWeightedBtn) {
+    el.modeWeightedBtn.addEventListener('click', function () { setSamplingMode('weighted', true); });
+  }
+
   // Does the actual draw and re-render, with no busy-guard of its own, so a
   // load's success handler can chain straight into it while the load still
   // holds the busy flag.
   function performDraw(count) {
     var seq = ++state.drawSeq;
-    return apiPost('/api/draw', { count: count })
+    var isWeighted = state.samplingMode === 'weighted';
+    return apiPost('/api/draw', { count: count, weighted: isWeighted })
       .then(function (data) {
         if (!data) return;
         // A slower earlier draw must not overwrite a newer one.
         if (seq !== state.drawSeq) return;
         var drawn = data.data.drawn || [];
+        var counts = data.data.counts || {};
+        for (var k in counts) {
+          state.wordCounts[k] = counts[k];
+        }
         if (state.current.length) {
           state.history = state.current.concat(state.history);
         }
         state.history = state.history.slice(0, HISTORY_LIMIT);
         state.current = drawn;
+        state.lastMultiDrawSources = null;
         renderBench();
       });
   }
@@ -410,7 +475,29 @@
     return performDraw(count);
   }
 
+  // A one-each draw does not load any source.  It therefore keeps the active
+  // pool untouched, while still using the normal current-word and history
+  // rendering path.
+  function drawOneEach() {
+    if (state.selection.length < 1) return;
+    var sources = state.selection.map(function (s) { return s.id; });
+    var labels = state.selection.map(labelForSelection);
+    var seq = ++state.drawSeq;
+    return apiPost('/api/draw/multi', { sources: sources })
+      .then(function (data) {
+        if (!data || seq !== state.drawSeq) return;
+        if (state.current.length) {
+          state.history = state.current.concat(state.history);
+        }
+        state.history = state.history.slice(0, HISTORY_LIMIT);
+        state.current = data.data.drawn || [];
+        state.lastMultiDrawSources = labels;
+        renderBench();
+      });
+  }
+
   el.drawBtn.addEventListener('click', function () { drawWords(getCount()); });
+  el.multiDrawBtn.addEventListener('click', drawOneEach);
 
   document.addEventListener('keydown', function (e) {
     if (e.code !== 'Space' && e.key !== ' ') return;
@@ -430,6 +517,10 @@
     btn.type = 'button';
     btn.className = 'word-chip' + (isKept ? ' is-kept' : '');
     btn.textContent = word;
+    if (state.wordCounts && state.wordCounts[word] != null) {
+      var c = state.wordCounts[word];
+      btn.title = word + ' (' + c.toLocaleString('en-US') + (c === 1 ? ' occurrence' : ' occurrences') + ')';
+    }
     btn.addEventListener('click', onClick);
     return btn;
   }
@@ -444,9 +535,22 @@
   }
 
   function renderSourceLine() {
+    if (state.lastMultiDrawSources) {
+      el.sourceLine.textContent = 'One each from selected sources: '
+          + state.lastMultiDrawSources.join(' · ');
+      return;
+    }
     var name = state.currentSource ? baseName(state.currentSource.path) : 'Loaded pool';
     var size = state.poolSize;
-    el.sourceLine.textContent = (size == null) ? name : (name + ' · ' + fmtWords(size));
+    var tokens = state.poolTokens;
+    var text = name;
+    if (size != null) {
+      text += ' · ' + fmtWords(size);
+      if (tokens != null && tokens !== size) {
+        text += ' (' + fmtTokens(tokens) + ')';
+      }
+    }
+    el.sourceLine.textContent = text;
   }
 
   function renderHistory() {
@@ -474,6 +578,7 @@
     }
     if (!active) return;
     state.poolSize = active.size;
+    state.poolTokens = active.tokens || null;
     if (active.source) {
       state.currentSource = { path: active.source, size: active.size };
     }
@@ -610,17 +715,167 @@
     }
   });
 
+  // ---------- recent texts (MRU, client-side only) ----------
+
+  function loadRecentTexts() {
+    try {
+      var raw = window.localStorage.getItem(RECENT_TEXTS_KEY);
+      if (!raw) return;
+      var parsed = JSON.parse(raw);
+      if (parsed && parsed.v === 1 && Array.isArray(parsed.texts)) {
+        state.recentTexts = parsed.texts.filter(function (t) {
+          return t && typeof t.path === 'string';
+        });
+      }
+    } catch (e) {
+      // Storage unavailable or corrupt. The page still works, just without
+      // remembering.
+    }
+  }
+
+  function saveRecentTexts() {
+    try {
+      window.localStorage.setItem(RECENT_TEXTS_KEY,
+          JSON.stringify({ v: 1, texts: state.recentTexts }));
+    } catch (e) {
+      // Ignored on purpose, the same as saveKept: a full or unavailable
+      // store must not block loading a text for the rest of this session.
+    }
+  }
+
+  // Moves `path` to the front of the MRU list, or adds it, then trims to
+  // the cap. Called once a text has actually finished loading.
+  function pushRecentText(path) {
+    if (!path) return;
+    state.recentTexts = state.recentTexts.filter(function (t) { return t.path !== path; });
+    state.recentTexts.unshift({ path: path, label: stripTxt(baseName(path)) });
+    state.recentTexts = state.recentTexts.slice(0, RECENT_TEXTS_LIMIT);
+    saveRecentTexts();
+    renderRecentTexts();
+  }
+
+  // Drops a text from the MRU list only -- the text itself is untouched.
+  function dropRecentText(path) {
+    state.recentTexts = state.recentTexts.filter(function (t) { return t.path !== path; });
+    state.selection = state.selection.filter(function (s) {
+      return !(s.kind === 'text' && s.id === path);
+    });
+    saveRecentTexts();
+    renderRecentTexts();
+    renderSelection();
+  }
+
+  function renderRecentTexts() {
+    el.recentTextsList.innerHTML = '';
+    if (state.recentTexts.length === 0) {
+      var empty = document.createElement('p');
+      empty.className = 'empty-note';
+      empty.textContent = 'Texts you load will collect here.';
+      el.recentTextsList.appendChild(empty);
+      return;
+    }
+    state.recentTexts.forEach(function (entry) {
+      el.recentTextsList.appendChild(renderRecentTextRow(entry));
+    });
+  }
+
+  function renderRecentTextRow(entry) {
+    var row = document.createElement('div');
+    row.className = 'pool-row';
+
+    var checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'select-checkbox';
+    checkbox.checked = isSelected('text', entry.path);
+    checkbox.setAttribute('aria-label',
+        'Select ' + entry.label + ' for drawing, quick intersecting, or combining');
+    checkbox.addEventListener('change', function () { toggleSelection('text', entry.path); });
+    row.appendChild(checkbox);
+
+    var load = document.createElement('button');
+    load.type = 'button';
+    load.className = 'pool-load';
+    load.setAttribute('aria-label', 'Load ' + entry.label);
+    var name = document.createElement('span');
+    name.className = 'pool-name';
+    name.textContent = entry.label;
+    load.appendChild(name);
+    load.addEventListener('click', function () { loadText(entry.path); });
+    row.appendChild(load);
+
+    var forget = document.createElement('button');
+    forget.type = 'button';
+    forget.className = 'pool-forget';
+    forget.textContent = '×';
+    forget.setAttribute('aria-label', 'Remove ' + entry.label + ' from recent texts');
+    forget.addEventListener('click', function () { dropRecentText(entry.path); });
+    row.appendChild(forget);
+
+    return row;
+  }
+
+  // ---------- selection (checked pools + recent texts, for combining) ----------
+
+  function isSelected(kind, id) {
+    return state.selection.some(function (s) { return s.kind === kind && s.id === id; });
+  }
+
+  function toggleSelection(kind, id) {
+    if (isSelected(kind, id)) {
+      state.selection = state.selection.filter(function (s) {
+        return !(s.kind === kind && s.id === id);
+      });
+    } else {
+      state.selection.push({ kind: kind, id: id });
+    }
+    renderPoolsList();
+    renderRecentTexts();
+    renderSelection();
+  }
+
+  function labelForSelection(item) {
+    if (item.kind === 'pool') return item.id;
+    var text = state.recentTexts.filter(function (t) { return t.path === item.id; })[0];
+    return text ? text.label : stripTxt(baseName(item.id));
+  }
+
+  function renderSelection() {
+    el.combineSelection.innerHTML = '';
+    if (state.selection.length === 0) {
+      var empty = document.createElement('p');
+      empty.className = 'empty-note';
+      empty.textContent = 'Nothing checked yet.';
+      el.combineSelection.appendChild(empty);
+    } else {
+      state.selection.forEach(function (item) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'word-chip';
+        chip.textContent = labelForSelection(item);
+        chip.setAttribute('aria-label', 'Remove ' + labelForSelection(item) + ' from the selection');
+        chip.addEventListener('click', function () { toggleSelection(item.kind, item.id); });
+        el.combineSelection.appendChild(chip);
+      });
+    }
+    el.combineSubmit.disabled = state.selection.length < 2;
+    el.multiDrawBtn.disabled = state.busy || state.selection.length < 1;
+    renderQuickIntersectAvailability();
+  }
+
   // ---------- pools pane ----------
 
   // Every command that can touch a pool hands back a fresh `pools` array, so
-  // this is the one place that redraws both the list and the two pickers in
-  // the combine form, rather than each caller patching state by hand.
+  // this is the one place that redraws the list and prunes stale
+  // selections (a forgotten pool can't stay checked), rather than each
+  // caller patching state by hand.
   function renderPools(pools) {
     if (!pools) return;
     state.pools = pools;
+    state.selection = state.selection.filter(function (s) {
+      return s.kind !== 'pool' || pools.some(function (p) { return p.name === s.id; });
+    });
     renderPoolsList();
-    populateSelect(el.combineA);
-    populateSelect(el.combineB);
+    renderSelection();
   }
 
   function renderPoolsList() {
@@ -640,6 +895,15 @@
   function renderPoolRow(pool) {
     var row = document.createElement('div');
     row.className = 'pool-row' + (pool.active ? ' is-active' : '');
+
+    var checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'select-checkbox';
+    checkbox.checked = isSelected('pool', pool.name);
+    checkbox.setAttribute('aria-label',
+        'Select ' + pool.name + ' for drawing, quick intersecting, or combining');
+    checkbox.addEventListener('change', function () { toggleSelection('pool', pool.name); });
+    row.appendChild(checkbox);
 
     var load = document.createElement('button');
     load.type = 'button';
@@ -672,6 +936,9 @@
     var size = document.createElement('span');
     size.className = 'pool-size';
     size.textContent = pool.size.toLocaleString('en-US');
+    if (pool.tokens && pool.tokens !== pool.size) {
+      size.title = pool.size.toLocaleString('en-US') + ' words, ' + pool.tokens.toLocaleString('en-US') + ' occurrences';
+    }
 
     var forget = document.createElement('button');
     forget.type = 'button';
@@ -684,22 +951,6 @@
     row.appendChild(size);
     row.appendChild(forget);
     return row;
-  }
-
-  // Fills a <select> with every known pool name, keeping the current
-  // selection if it still names a pool that exists.
-  function populateSelect(select) {
-    var prevValue = select.value;
-    select.innerHTML = '';
-    state.pools.forEach(function (pool) {
-      var opt = document.createElement('option');
-      opt.value = pool.name;
-      opt.textContent = pool.name;
-      select.appendChild(opt);
-    });
-    if (state.pools.some(function (p) { return p.name === prevValue; })) {
-      select.value = prevValue;
-    }
   }
 
   function loadPool(name) {
@@ -828,10 +1079,11 @@
 
   el.combineForm.addEventListener('submit', function (e) {
     e.preventDefault();
-    var a = el.combineA.value;
-    var b = el.combineB.value;
-    if (!a || !b) return;
-    var body = { op: el.combineOp.value, a: a, b: b };
+    if (state.selection.length < 2) return;
+    var body = {
+      op: el.combineOp.value,
+      sources: state.selection.map(function (s) { return s.id; }),
+    };
     var out = el.combineOut.value.trim();
     if (out) body.out = out;
     submitCombine(body, false);
@@ -851,7 +1103,9 @@
       }
       hideCombineConfirm();
       el.combineOut.value = '';
+      state.selection = [];
       renderPools(data.pools);
+      renderRecentTexts();
     });
   }
 
@@ -875,11 +1129,95 @@
     hideCombineConfirm();
   });
 
+  // ---------- pools pane: quick intersection ----------
+
+  // Dictionaries are ordinary library files, so this reads the same endpoint
+  // as the tree rather than maintaining a second, subtly different list.
+  function loadDictionaries() {
+    fetchFolder('dicts').then(function (entries) {
+      el.quickIntersectDictionary.innerHTML = '';
+      var placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = entries ? 'Choose a dictionary…' : 'No dictionaries available';
+      el.quickIntersectDictionary.appendChild(placeholder);
+
+      var dictionaries = entries ? entries.filter(function (entry) { return !entry.is_dir; }) : [];
+      if (entries) {
+        dictionaries
+          .forEach(function (entry) {
+            var option = document.createElement('option');
+            option.value = entry.path;
+            option.textContent = stripTxt(entry.name);
+            el.quickIntersectDictionary.appendChild(option);
+          });
+      }
+      el.quickIntersectDictionary.disabled = dictionaries.length === 0;
+      renderQuickIntersectAvailability();
+    });
+  }
+
+  function renderQuickIntersectAvailability() {
+    if (!el.quickIntersectSubmit) return;
+    var hasDictionary = !!el.quickIntersectDictionary.value;
+    el.quickIntersectSubmit.disabled = state.selection.length !== 1 || !hasDictionary;
+  }
+
+  el.quickIntersectDictionary.addEventListener('change', renderQuickIntersectAvailability);
+
+  el.quickIntersectForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (state.selection.length !== 1) return;
+    var dictionary = el.quickIntersectDictionary.value;
+    var out = el.quickIntersectOut.value.trim();
+    if (!dictionary || !out) return;
+    submitQuickIntersect({
+      op: 'intersection',
+      sources: [state.selection[0].id, dictionary],
+      out: out,
+    }, false);
+  });
+
+  function submitQuickIntersect(body, force) {
+    if (force) body.force = true;
+    apiPost('/api/pools/op', body).then(function (data) {
+      if (!data) return;
+      if (data.confirm) {
+        state.pendingQuickIntersect = body;
+        showQuickIntersectConfirm(data.confirm);
+        return;
+      }
+      hideQuickIntersectConfirm();
+      el.quickIntersectOut.value = '';
+      state.selection = [];
+      renderPools(data.pools);
+      renderRecentTexts();
+    });
+  }
+
+  function showQuickIntersectConfirm(question) {
+    el.quickIntersectConfirmText.textContent = question;
+    el.quickIntersectConfirm.hidden = false;
+  }
+
+  function hideQuickIntersectConfirm() {
+    el.quickIntersectConfirm.hidden = true;
+    state.pendingQuickIntersect = null;
+  }
+
+  el.quickIntersectConfirmYes.addEventListener('click', function () {
+    var body = state.pendingQuickIntersect;
+    hideQuickIntersectConfirm();
+    if (body) submitQuickIntersect(body, true);
+  });
+
+  el.quickIntersectConfirmNo.addEventListener('click', hideQuickIntersectConfirm);
+
   // ---------- busy state ----------
 
   function setBusy(isBusy) {
     state.busy = isBusy;
     el.drawBtn.disabled = isBusy;
+    el.multiDrawBtn.disabled = isBusy || state.selection.length < 1;
     el.randFlatBtn.disabled = isBusy;
     el.randWalkBtn.disabled = isBusy;
   }
@@ -934,8 +1272,15 @@
       logCmd(data.ok ? 'out' : 'err', data.message || 'Done.');
       // A command can load, save, forget, or combine pools just as easily
       // as any button here can, so the pane is refreshed on every answer
-      // rather than only on the requests this file itself made.
       if (data.pools) renderPools(data.pools);
+      if (data.data && data.data.mode) {
+        setSamplingMode(data.data.mode, false);
+      }
+      if (data.data && data.data.counts) {
+        for (var k in data.data.counts) {
+          state.wordCounts[k] = data.data.counts[k];
+        }
+      }
     });
   }
 
@@ -1042,7 +1387,19 @@
     loadKept();
     renderKept();
 
+    loadRecentTexts();
+    renderRecentTexts();
+
+    try {
+      var savedMode = localStorage.getItem(SAMPLING_MODE_KEY);
+      if (savedMode === 'weighted' || savedMode === 'uniform') {
+        setSamplingMode(savedMode, true);
+      }
+    } catch (_) {}
+    renderModeToggle();
+
     fetchFolder('').then(renderTree);
+    loadDictionaries();
 
     apiGet('/api/pools').then(function (data) {
       if (!data) return;

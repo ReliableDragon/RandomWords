@@ -216,28 +216,37 @@ def forget(req: Request) -> Response:
   return from_result(result, {'pools': req.session.pools()})
 
 
-# Union, difference or intersection of two pools into a third.
+# Union, difference or intersection of two or more sources into one pool.
 #
-# An `out` that already names a pool other than the first operand comes
-# back as a question rather than being overwritten, the same as `save`.
+# A source may be a saved pool name or a raw library path -- the underlying
+# command resolves either, so a text needs no alias step first. `sources`
+# is the current way to ask for this; `a`/`b` still work for a plain
+# two-pool combine.
+#
+# An `out` that already names a pool other than the first source comes back
+# as a question rather than being overwritten, the same as `save`. `out` is
+# always resolved before the command runs (defaulting to the first source)
+# so the command always sees the unambiguous "sources..., out" shape,
+# rather than leaning on the two-argument form's implicit "no out" meaning.
 def combine(req: Request) -> Response:
   operation = req.body.get('op')
   if operation not in OPERATIONS:
     return fail(400, f'Unknown operation: {operation!r}. '
                      f'Use union, difference or intersection.')
 
-  first = req.body.get('a')
-  second = req.body.get('b')
-  if not (isinstance(first, str) and first
-          and isinstance(second, str) and second):
-    return fail(400, 'Give two pools to combine.')
+  raw_sources = req.body.get('sources')
+  if isinstance(raw_sources, list):
+    names = [s for s in raw_sources if isinstance(s, str) and s]
+  else:
+    names = [s for s in (req.body.get('a'), req.body.get('b'))
+             if isinstance(s, str) and s]
+  if len(names) < 2:
+    return fail(400, 'Give at least two pools to combine.')
 
-  args = [first, second]
   out = req.body.get('out')
-  if isinstance(out, str) and out:
-    args.append(out)
+  out = out if isinstance(out, str) and out else names[0]
 
-  result = req.session.run(OPERATIONS[operation], args)
+  result = req.session.run(OPERATIONS[operation], names + [out])
   result = apply_if_forced(req, result)
   return from_result(result, {'pools': req.session.pools()})
 
@@ -252,7 +261,41 @@ def draw(req: Request) -> Response:
     return fail(400, 'Ask for at least one word.')
   count = min(count, MAX_DRAW)
 
-  result = req.session.run('get_word', [count])
+  weighted = req.body.get('weighted')
+  if weighted is None:
+    weighted = (getattr(req.session, 'sampling_mode', 'uniform') == 'weighted')
+
+  cmd_name = 'weighted_word' if weighted else 'get_word'
+  result = req.session.run(cmd_name, [count])
+  return from_result(result)
+
+
+def multi_draw(req: Request) -> Response:
+  """Draw one word from every requested pool, text, or folder.
+
+  This deliberately uses the command behind ``mul`` rather than loading each
+  source into the active pool.  A multi-draw is a read-only convenience: it
+  must leave the active pool exactly as it was before the request.
+  """
+  sources = req.body.get('sources')
+  if not isinstance(sources, list) or not sources:
+    return fail(400, 'Give one or more sources to draw from.')
+  if len(sources) > MAX_DRAW:
+    return fail(400, f'Draw from at most {MAX_DRAW} sources at once.')
+  if any(not isinstance(source, str) or not source for source in sources):
+    return fail(400, 'Every draw source must be a nonempty string.')
+
+  result = req.session.run('multi_folder_get_words', sources)
+  return from_result(result)
+
+
+def mode(req: Request) -> Response:
+  if req.method == 'GET':
+    return Response(200, {'ok': True, 'mode': getattr(req.session, 'sampling_mode', 'uniform')})
+  new_mode = req.body.get('mode')
+  if not new_mode:
+    return fail(400, 'Specify a mode ("uniform" or "weighted").')
+  result = req.session.run('mode', [new_mode])
   return from_result(result)
 
 
@@ -279,19 +322,23 @@ def command(req: Request) -> Response:
 
 def status(req: Request) -> Response:
   return Response(200, {'ok': True, 'cache': req.fm.stats(),
-                        'pools': req.session.pools()})
+                        'pools': req.session.pools(),
+                        'mode': getattr(req.session, 'sampling_mode', 'uniform')})
 
 
 ROUTES = {
   ('GET', '/api/library'): library,
   ('GET', '/api/pools'): pools,
   ('GET', '/api/status'): status,
+  ('GET', '/api/mode'): mode,
+  ('POST', '/api/mode'): mode,
   ('POST', '/api/pools/load'): load,
   ('POST', '/api/pools/random'): load_random,
   ('POST', '/api/pools/save'): save,
   ('POST', '/api/pools/write'): write,
   ('POST', '/api/pools/op'): combine,
   ('POST', '/api/draw'): draw,
+  ('POST', '/api/draw/multi'): multi_draw,
   ('POST', '/api/command'): command,
 }
 

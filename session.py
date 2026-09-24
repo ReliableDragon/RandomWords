@@ -77,11 +77,35 @@ class Session():
 
   # Every pool with its size. Never the words themselves: the largest is six
   # megabytes of JSON, to support a draw that takes a microsecond here.
+  @property
+  def sampling_mode(self) -> str:
+    with self._lock:
+      return self.manager.get_sampling_mode()
+
+  def set_sampling_mode(self, mode: str) -> None:
+    with self._lock:
+      self.manager.set_sampling_mode(mode)
+
+
+  # Every pool with its size. Never the words themselves: the largest is six
+  # megabytes of JSON, to support a draw that takes a microsecond here.
   def pools(self) -> list[dict]:
     with self._lock:
-      return [{'name': name, 'size': len(words), 'active': name == 'words',
-               'source': self.sources.get(name)}
-              for name, words in self.manager.context.items()]
+      result = []
+      for name, words in self.manager.context.items():
+        info = {
+            'name': name,
+            'size': len(words),
+            'active': name == 'words',
+            'source': self.sources.get(name),
+        }
+        counts = self.manager.get_counts(name)
+        if counts:
+          total = sum(counts.values())
+          if total != len(words):
+            info['tokens'] = total
+        result.append(info)
+      return result
 
 
 class SessionStore():
