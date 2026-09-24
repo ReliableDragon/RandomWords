@@ -116,6 +116,19 @@ notes, and suggest existing entries mentioned in a draft or sharing its biome
 or tags. It reads the vault in place; no import or index file is written to
 the vault.
 
+The **Map** tab shows the whole-vault graph, the one- or two-link neighborhood
+around an open entry, and a biome-sector view. It distinguishes resolved,
+unresolved, and ambiguous links, marks stubs and `#rework` notes, and can show
+Nearby suggestions as ghost links. Its read-only endpoint is
+`GET /api/world/graph`; add `?around=<canonical-vault-path>&depth=1` or
+`depth=2` for a local graph, or omit `around` for the whole vault. Obsidian
+path color groups are read from `.obsidian/graph.json`.
+
+The preview evaluates a bounded subset of Obsidian Base filters: nested
+`and`/`or` expressions using `file.links.contains(this.file.name)` and
+`file.path.contains("…")`. Unsupported expressions remain visible as code
+with a diagnostic; they are never partly evaluated.
+
 The World page also has **Coverage**, **Upkeep**, **Lexicon**, and **Backlog**
 views. Coverage counts each canonical biome membership once and shows how a
 note reaches that biome. Upkeep lists broken links, isolated and unreferenced

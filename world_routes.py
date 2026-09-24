@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 import os
+import json
 import re
 from urllib.parse import quote
 
@@ -170,7 +171,9 @@ def get_entry(req):
         return _fail(400, "Which vault entry should I open?")
     text, revision = req.vault.read(path)
     item = parse(text, path, revision)
-    html = render(item, lambda target: _resolve(req, target, path))
+    html = render(item, lambda target: _resolve(req, target, path),
+                  base_entries=_index_entries(req.world_index),
+                  base_resolve=lambda target, source: _resolution(req, target, source))
     links = []
     for link in item.links:
         row = asdict(link)
@@ -229,6 +232,128 @@ def search(req):
             if len(results) >= MAX_RESULTS:
                 break
     return _ok("Search complete.", {"results": results[:MAX_RESULTS]})
+
+
+def _graph_colors(vault):
+    """Read Obsidian's path color groups without exposing arbitrary files."""
+    root = os.path.realpath(vault.root)
+    config = os.path.realpath(os.path.join(root, ".obsidian", "graph.json"))
+    if not config.startswith(root + os.sep):
+        return []
+    try:
+        with open(config, encoding="utf-8") as source:
+            groups = json.load(source).get("colorGroups", [])
+    except (OSError, ValueError, AttributeError, TypeError):
+        return []
+    result = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        query = group.get("query", "")
+        color = group.get("color", {})
+        if not isinstance(query, str) or not isinstance(color, dict):
+            continue
+        # Obsidian stores path filters as `path:Folder` or
+        # `path:"Folder With Spaces"`. Other query forms are not guessed.
+        match = re.fullmatch(r'\s*path:(?:"([^"]+)"|([^\s]+))\s*', query)
+        rgb = color.get("rgb")
+        if not match or not isinstance(rgb, int) or isinstance(rgb, bool) or not 0 <= rgb <= 0xFFFFFF:
+            continue
+        result.append((match.group(1) or match.group(2), rgb))
+    return result
+
+
+def graph(req):
+    """Return all graph nodes or the resolved neighborhood of a note."""
+    _ensure_index(req)
+    index = req.world_index
+    if index is None:
+        return _fail(404, "World vault is not enabled.")
+    around = req.query.get("around", "")
+    depth_value = req.query.get("depth", "2")
+    if not isinstance(around, str) or not isinstance(depth_value, str):
+        return _fail(400, "Invalid graph filters.")
+    try:
+        depth = int(depth_value)
+    except (TypeError, ValueError):
+        return _fail(400, "Graph depth must be 1 or 2.")
+    if depth not in (1, 2):
+        return _fail(400, "Graph depth must be 1 or 2.")
+
+    entries = getattr(index, "entries", {})
+    if around and around not in entries:
+        return _fail(400, "Around must be a canonical vault path.")
+
+    colors = _graph_colors(req.vault) if req.vault is not None else []
+    memberships = getattr(index, "memberships", {})
+    nodes = {}
+    for path, entry in sorted(entries.items()):
+        rgb = next((value for prefix, value in colors
+                    if path.casefold().startswith(prefix.casefold().rstrip("/") + "/") or
+                    path.casefold() == prefix.casefold().rstrip("/")), None)
+        biome_rows = memberships.get(path, ())
+        nodes[path] = {
+            "id": path, "path": path, "title": entry.title, "label": entry.title,
+            "kind": entry.kind, "folder": entry.folder, "state": "entry",
+            "stub": entry.stub,
+            "rework": "rework" in {tag.casefold() for tag in entry.tags},
+            "inbound": len(getattr(index, "backlinks", {}).get(path, ())),
+            "biomes": [{"path": row.path, "via": row.via}
+                       for row in biome_rows],
+            "color": f"#{rgb:06x}" if rgb is not None else None,
+            "color_rgb": rgb,
+        }
+
+    edges = []
+    for source_path in sorted(entries):
+        for resolution in getattr(index, "forward_links", {}).get(source_path, ()):
+            status = getattr(resolution, "status", "unresolved")
+            target_path = getattr(resolution, "path", None)
+            target_text = getattr(resolution, "target", "")
+            candidates = list(getattr(resolution, "candidates", ()))
+            if status == "resolved" and target_path in entries:
+                target_id = target_path
+            else:
+                status = "ambiguous" if status == "ambiguous" else "unresolved"
+                from urllib.parse import quote as quote_component
+                target_id = f"{status}:{quote_component(target_text.casefold(), safe='')}"
+                nodes.setdefault(target_id, {
+                    "id": target_id, "path": None, "title": target_text,
+                    "label": target_text, "kind": None, "folder": None,
+                    "state": status, "stub": False, "rework": False,
+                    "inbound": 0, "biomes": [], "color": None,
+                    "color_rgb": None,
+                    "candidates": candidates if status == "ambiguous" else [],
+                })
+            edges.append({"source": source_path, "target": target_id,
+                          "status": status, "label": target_text})
+
+    if around:
+        adjacency = {path: set() for path in entries}
+        for edge in edges:
+            if edge["status"] == "resolved":
+                adjacency[edge["source"]].add(edge["target"])
+                adjacency[edge["target"]].add(edge["source"])
+        distances = {around: 0}
+        frontier = [around]
+        while frontier:
+            current = frontier.pop(0)
+            if distances[current] >= depth:
+                continue
+            for neighbor in sorted(adjacency[current]):
+                if neighbor not in distances:
+                    distances[neighbor] = distances[current] + 1
+                    frontier.append(neighbor)
+        selected = set(distances)
+        edges = [edge for edge in edges if edge["source"] in selected and
+                 (edge["status"] != "resolved" or edge["target"] in selected)]
+        selected.update(edge["target"] for edge in edges if edge["status"] != "resolved")
+        nodes = {node_id: node for node_id, node in nodes.items() if node_id in selected}
+
+    return _ok("World graph loaded.", {
+        "around": around or None, "depth": depth if around else None,
+        "nodes": list(nodes.values()), "edges": edges,
+    })
 
 
 def tags(req):
@@ -458,7 +583,9 @@ def nearby(req):
         return _fail(400, "Draft path and client revision are required.")
     item = parse(text, path or "Draft.md")
     _ensure_index(req)
-    html = render(item, lambda target: _resolve(req, target, item.path))
+    html = render(item, lambda target: _resolve(req, target, item.path),
+                  base_entries=_index_entries(req.world_index),
+                  base_resolve=lambda target, source: _resolution(req, target, source))
     groups = _nearby_groups(req, item)
     index = req.world_index
     fn = None
@@ -564,6 +691,7 @@ ROUTES = {
     ("GET", "/api/world/tree"): tree,
     ("GET", "/api/world/entry"): get_entry,
     ("GET", "/api/world/search"): search,
+    ("GET", "/api/world/graph"): graph,
     ("GET", "/api/world/tags"): tags,
     ("POST", "/api/world/entry"): save_entry,
     ("POST", "/api/world/new"): create_entry,

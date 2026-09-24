@@ -116,6 +116,65 @@ class WorldRoutesTest(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual([x["path"] for x in response.payload["data"]["results"]], ["Places/Fenaya.md"])
 
+    def test_graph_has_canonical_entry_nodes_and_distinct_link_states(self):
+        os.makedirs(os.path.join(self.root, "Other"))
+        os.makedirs(os.path.join(self.root, "Elsewhere"))
+        for path, text in (
+            ("People/Duplicate.md", "First duplicate.\n"),
+            ("Places/Duplicate.md", "Second duplicate.\n"),
+            ("Elsewhere/Links.md", "[[Duplicate]] [[Missing]] [[People/Duplicate]]\n"),
+            ("Other/Isolated.md", "Nothing links here.\n"),
+        ):
+            with open(os.path.join(self.root, *path.split("/")), "w", encoding="utf8") as f:
+                f.write(text)
+        os.makedirs(os.path.join(self.root, ".obsidian"))
+        with open(os.path.join(self.root, ".obsidian", "graph.json"), "w", encoding="utf8") as f:
+            f.write('{"colorGroups":[{"query":"path:People  ","color":{"rgb":14701138}}]}')
+
+        index = VaultIndex(self.vault, stat_interval=3600)
+        response = dispatch(self.request("GET", "/api/world/graph", world_index=index))
+        self.assertEqual(response.status, 200)
+        data = response.payload["data"]
+        nodes = {node["id"]: node for node in data["nodes"]}
+        self.assertIn("People/Duplicate.md", nodes)
+        self.assertEqual(nodes["People/Duplicate.md"]["color"], "#e05252")
+        self.assertIn("Places/Duplicate.md", nodes)
+        self.assertIn("Other/Isolated.md", nodes)
+        self.assertIn("ambiguous:duplicate", nodes)
+        self.assertIn("unresolved:missing", nodes)
+        ambiguous = nodes["ambiguous:duplicate"]
+        self.assertEqual(ambiguous["state"], "ambiguous")
+        self.assertEqual(ambiguous["candidates"], ["People/Duplicate.md", "Places/Duplicate.md"])
+        resolved = next(edge for edge in data["edges"]
+                        if edge["source"] == "Elsewhere/Links.md" and
+                        edge["label"] == "People/Duplicate")
+        self.assertEqual(resolved["target"], "People/Duplicate.md")
+        self.assertEqual(resolved["status"], "resolved")
+
+    def test_graph_around_uses_canonical_path_and_depth(self):
+        os.makedirs(os.path.join(self.root, "Other"))
+        with open(os.path.join(self.root, "Other", "Far.md"), "w", encoding="utf8") as f:
+            f.write("Far note.\n")
+        with open(os.path.join(self.root, "People", "Mira.md"), "w", encoding="utf8") as f:
+            f.write("From: [[Fenaya]]\n\nMira explores [[Fenaya]] and [[Missing]].\n")
+        with open(os.path.join(self.root, "Other", "Far.md"), "w", encoding="utf8") as f:
+            f.write("[[People/Mira]]\n")
+        index = VaultIndex(self.vault, stat_interval=3600)
+        response = dispatch(self.request("GET", "/api/world/graph",
+                                         {"around": "Places/Fenaya.md", "depth": "1"},
+                                         world_index=index))
+        self.assertEqual(response.status, 200)
+        data = response.payload["data"]
+        node_ids = {node["id"] for node in data["nodes"]}
+        self.assertEqual(data["around"], "Places/Fenaya.md")
+        self.assertEqual(data["depth"], 1)
+        self.assertIn("People/Mira.md", node_ids)
+        self.assertNotIn("Other/Far.md", node_ids)
+        self.assertIn("unresolved:missing", node_ids)
+        invalid = dispatch(self.request("GET", "/api/world/graph",
+                                        {"around": "Fenaya"}, world_index=index))
+        self.assertEqual(invalid.status, 400)
+
     def test_tags_combines_index_and_root_tags_file_sorted_and_deduplicated(self):
         with open(os.path.join(self.root, "Tags.md"), "w", encoding="utf8") as f:
             f.write("# Tags\n\n- #animal\n- #loaming — duplicate spelling\n- biome\n")
@@ -264,6 +323,39 @@ class WorldRoutesTest(unittest.TestCase):
         self.assertEqual(data["client_revision"], 7)
         self.assertIn("&lt;script&gt;", data["html"])
         self.assertEqual(set(data["groups"]), {"named_not_linked", "same_biome", "same_tags"})
+
+    def test_entry_and_nearby_evaluate_supported_bases_and_diagnose_unsupported(self):
+        os.makedirs(os.path.join(self.root, "Locations", "Biomes"))
+        os.makedirs(os.path.join(self.root, "Flora and Fauna"))
+        biome_path = "Locations/Biomes/Fenaya.md"
+        biome_text = (
+            "# Wildlife\n"
+            "```base\nfilters:\n  and:\n"
+            "    - file.links.contains(this.file.name)\n"
+            "    - file.path.contains(\"Flora and Fauna\")\n``````\n"
+            "# Future Filter\n"
+            "```base\nfilters:\n  and:\n"
+            "    - file.name.contains(\"Heron\")\n```\n"
+        )
+        with open(os.path.join(self.root, biome_path), "w", encoding="utf8") as f:
+            f.write(biome_text)
+        with open(os.path.join(self.root, "Flora and Fauna", "Marsh Heron.md"),
+                  "w", encoding="utf8") as f:
+            f.write("From: [[Locations/Biomes/Fenaya]]\n\nA marsh bird.\n")
+        index = VaultIndex(self.vault, stat_interval=3600)
+
+        opened = dispatch(self.request("GET", "/api/world/entry", {"path": biome_path},
+                                       world_index=index))
+        preview = dispatch(self.request("POST", "/api/world/nearby", body={
+            "text": biome_text, "path": biome_path, "client_revision": "draft-1",
+        }, world_index=index))
+        self.assertEqual((opened.status, preview.status), (200, 200))
+        for html in (opened.payload["data"]["html"], preview.payload["data"]["html"]):
+            self.assertIn("class=\"base-results\"", html)
+            self.assertIn("path=Flora%20and%20Fauna/Marsh%20Heron.md", html)
+            self.assertIn("class=\"base-diagnostic\"", html)
+            self.assertIn("Unsupported Base filter expression", html)
+            self.assertIn("<pre><code>", html)
 
     def test_invalid_and_unknown_routes_have_envelopes(self):
         self.assertEqual(dispatch(self.request("GET", "/api/world/tree", {"path": "../"})).status, 400)

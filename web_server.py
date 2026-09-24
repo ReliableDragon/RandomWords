@@ -25,6 +25,7 @@ STATIC = {
   '/world': ('world.html', 'text/html; charset=utf-8'),
   '/world.html': ('world.html', 'text/html; charset=utf-8'),
   '/world.js': ('world.js', 'text/javascript; charset=utf-8'),
+  '/world_map.js': ('world_map.js', 'text/javascript; charset=utf-8'),
   '/world.css': ('world.css', 'text/css; charset=utf-8'),
 }
 

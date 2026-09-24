@@ -632,6 +632,9 @@ concern, with a test beside each.
 ## Phases
 
 Each phase is usable when it lands and none needs the next.
+Implementation status on this branch as of 2026-09-24: phases 1–3 are
+implemented; phase 4 remains future work. The descriptions and acceptance
+criteria below retain the original proposal.
 
 1. **The writing loop.** Add `--vault`, path-safe and revision-safe vault
    access, lossless entry parsing, the tree and search, the bench strip,
@@ -651,6 +654,8 @@ Each phase is usable when it lands and none needs the next.
    browser draft is discarded; delayed link suggestions cannot edit a newer
    draft; unsafe external URL schemes render inert while encoded internal
    links still open.
+
+   **Status on this branch (2026-09-24): Implemented.**
 2. **Richer connections and upkeep.** Add BM25 and two-hop Nearby groups, the
    coverage matrix, roller, backlog, health page, lexicon, spelling drift and
    `which`. Geography reports canonical biome membership separately from
@@ -661,6 +666,8 @@ Each phase is usable when it lands and none needs the next.
    `People/` and arbitrary folders do not become regions; related/unrelated
    retrieval fixtures pass with ordinary world words still indexed; every
    health result opens the canonical path it describes.
+
+   **Status on this branch (2026-09-24): Implemented.**
 3. **The map and richer Bases.** Add the local and whole-vault graph, ghost
    Nearby edges, the biome view, Obsidian graph colours, and evaluation of the
    explicitly supported Base-filter subset. Until this phase, Base blocks
@@ -670,6 +677,10 @@ Each phase is usable when it lands and none needs the next.
    visibly different node states; a qualified link selects the intended node;
    supported real Base fixtures match their expected entries, and unsupported
    expressions still render as code with a diagnostic.
+
+   **Status on this branch (2026-09-24): Implemented.** The supported Base
+   filters are nested `and`/`or` expressions over
+   `file.links.contains(this.file.name)` and `file.path.contains("…")`.
 4. **Story.** Add configured scene folders, deterministic ordering, the body
    appearance report, metadata reference cards, voices and export. Explicit
    introduction or discovery metadata and advisory continuity checks are a
@@ -680,6 +691,8 @@ Each phase is usable when it lands and none needs the next.
    appearances; duplicate note titles produce distinct anchors and glossary
    entries; story notes outside the supported frontmatter subset stay editable
    and receive a visible diagnostic.
+
+   **Status on this branch (2026-09-24): Future work.**
 
 The first phase is intentionally the feature that earns the rest. The force
 layout, Base interpreter and inferred character knowledge are not prerequisites
