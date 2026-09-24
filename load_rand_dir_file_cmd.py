@@ -24,7 +24,11 @@ class LoadRandDirFile(FileCommand):
       return CommandResult.fail('No .txt files found under /.')
 
     try:
-      words = self.fm.get_words(fname)
+      if hasattr(self.fm, 'get_words_and_counts'):
+        words, counts = self.fm.get_words_and_counts(fname)
+      else:
+        words = self.fm.get_words(fname)
+        counts = {w: 1 for w in words}
     except UnreadableSource as e:
       return CommandResult.fail(str(e))
     if not words:
@@ -32,4 +36,5 @@ class LoadRandDirFile(FileCommand):
 
     return CommandResult(message=f'Loaded {fname}.',
                          updates={'words': words},
+                         counts={'words': counts},
                          data={'source': fname, 'size': len(words)})

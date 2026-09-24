@@ -20,6 +20,8 @@ from quit_cmd import Quit
 from which_cmd import Which
 from rare_cmd import Rare
 from like_cmd import Like
+from weighted_word_cmd import WeightedWord
+from mode_cmd import Mode
 from word_index import WordIndex
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,8 @@ class CommandList():
       Quit(),
       Which(self.index),
       Rare(self.index),
-      Like(self.index)
+      Like(self.index),
+      WeightedWord(),
+      Mode()
     ]
     return cmds

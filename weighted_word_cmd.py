@@ -2,27 +2,23 @@ from command import Command
 from command_result import CommandResult
 from sampling import sample_words
 
-class GetWord(Command):
+
+class WeightedWord(Command):
 
   @staticmethod
   def cmd_name():
-    return 'get_word'
+    return 'weighted_word'
 
   def overview(self):
-    return 'get_word: "word", "next", a number, or an empty line'
+    return 'weighted_word [w, weighted, oword] [N]: draw N words weighted by occurrence count'
 
   def matches(self, line):
-    line = line.strip().lower()
-    if line in ['', 'word', 'next']:
-      return True
-    if line.isnumeric():
-      return True
-    return False
+    return self.check_match(r'(weighted_word|weighted|oword|w)( \d+)?', line)
 
   def parse_args(self, line):
-    line = line.strip()
-    if line.isnumeric():
-      return [int(line)]
+    parts = line.strip().split()
+    if len(parts) > 1 and parts[1].isnumeric():
+      return [int(parts[1])]
     return []
 
   def execute(self, args_, context):
@@ -30,10 +26,8 @@ class GetWord(Command):
     if not words:
       return CommandResult.fail('No words are loaded. Use load, r or dr first.')
     num = args_[0] if args_ else 1
-    mode = getattr(context, 'sampling_mode', 'uniform')
     pool_counts = getattr(context, 'counts', {}).get('words')
-    is_weighted = (mode == 'weighted')
-    drawn = sample_words(words, pool_counts or {}, num, weighted=is_weighted)
+    drawn = sample_words(words, pool_counts or {}, num, weighted=True)
     data = {'drawn': drawn}
     if pool_counts is not None:
       data['counts'] = {w: pool_counts.get(w, 1) for w in drawn}

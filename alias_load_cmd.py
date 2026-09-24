@@ -39,12 +39,17 @@ class AliasLoad(FileCommand):
     if len(args_) == 2:
       # get_words resolves the path itself.
       try:
-        words = self.fm.get_words(args_[1])
+        if hasattr(self.fm, 'get_words_and_counts'):
+          words, counts = self.fm.get_words_and_counts(args_[1])
+        else:
+          words = self.fm.get_words(args_[1])
+          counts = {w: 1 for w in words}
       except UnreadableSource as e:
         return CommandResult.fail(
             f'{e}\nNo words found in {args_[1]}; alias not created.')
     else:
       words = context.get('words')
+      counts = getattr(context, 'counts', {}).get('words', {w: 1 for w in words} if words else {})
 
     if not words:
       if len(args_) == 2:
@@ -52,18 +57,21 @@ class AliasLoad(FileCommand):
       return CommandResult.fail('No words are loaded, so there is nothing to save.')
 
     updates = {alias: words}
+    counts_map = {alias: counts}
+    tokens = sum(counts.values()) if counts else len(words)
     data = {'pool': alias, 'size': len(words),
             # Which text this came from, or None for the active pool. A
             # front end uses it to say where a saved pool came from; the key
             # being present is what marks this result as a save.
-            'saved_from': args_[1] if len(args_) == 2 else None}
+            'saved_from': args_[1] if len(args_) == 2 else None,
+            'tokens': tokens}
 
     if alias in context:
       # The command does not ask; it says what needs asking and hands back
       # the answer it would apply. The manager withholds the updates until
       # a front end brings back a yes, so a terminal can prompt and an HTTP
       # client can retry with force, and this code never learns which.
-      return CommandResult(updates=updates, data=data,
+      return CommandResult(updates=updates, counts=counts_map, data=data,
                            confirm=OVERWRITE_QUESTION)
 
-    return CommandResult(updates=updates, data=data)
+    return CommandResult(updates=updates, counts=counts_map, data=data)

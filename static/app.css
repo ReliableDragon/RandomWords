@@ -71,9 +71,9 @@ kbd {
    collapse below can move `pools` under `bench` — while `library` keeps
    spanning both rows — with a template swap instead of source-order or
    flex-wrap tricks. `.app` itself is a flex child of `body` (also now a
-   column), which is what gives it a bounded height for `bench` and
-   `pools-list`'s own `overflow-y: auto` to mean something, and a fallback
-   scrollbar of its own if a narrow, stacked layout still runs long. */
+   column), which is what gives it a bounded height for `bench` and the
+   scrollable `pools` pane, plus a fallback scrollbar of its own if a narrow,
+   stacked layout still runs long. */
 .app {
   display: grid;
   grid-template-columns: 320px 1fr 300px;
@@ -107,6 +107,7 @@ kbd {
 .pools {
   grid-area: pools;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -115,6 +116,7 @@ kbd {
   max-height: 100dvh;
   position: sticky;
   top: 0;
+  overflow-y: auto;
 }
 
 /* The two responsive overrides for this layout (1100px, 760px) live at the
@@ -316,6 +318,14 @@ kbd {
   margin-top: 0.5rem;
 }
 
+.draw-help {
+  max-width: 34rem;
+  margin: -0.25rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
 .stepper {
   display: inline-flex;
   align-items: center;
@@ -355,6 +365,42 @@ kbd {
 .stepper-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+.sampling-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.toggle-btn {
+  height: 2.4rem;
+  padding: 0 0.85rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.toggle-btn + .toggle-btn {
+  border-left: 1px solid var(--hair);
+}
+
+.toggle-btn:hover {
+  background: var(--sunk);
+  color: var(--ink);
+}
+
+.toggle-btn.is-active {
+  background: var(--sunk);
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .btn {
@@ -542,8 +588,8 @@ kbd {
 }
 
 .pools-list {
-  flex: 1 1 auto;
-  overflow-y: auto;
+  flex: 0 0 auto;
+  overflow-y: visible;
   padding: 0.4rem 0;
 }
 
@@ -555,6 +601,13 @@ kbd {
 }
 
 .pool-row:hover { background: var(--sunk); }
+
+.select-checkbox {
+  flex: 0 0 auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--malachite);
+}
 
 .pool-load {
   flex: 1 1 auto;
@@ -631,6 +684,17 @@ kbd {
 
 .pool-forget:hover { color: var(--cinnabar); }
 
+.recent-texts-head {
+  flex: 0 0 auto;
+  padding: 1rem 1.25rem 0;
+}
+
+.recent-texts-list {
+  flex: 0 0 auto;
+  padding: 0.4rem 0 0.6rem;
+  border-bottom: 1px solid var(--hair);
+}
+
 .pool-forms {
   flex: 0 0 auto;
   border-top: 1px solid var(--hair);
@@ -658,6 +722,32 @@ kbd {
 .pool-form-row + .pool-form-row { margin-top: 0.6rem; }
 
 .combine-row { flex-wrap: wrap; }
+
+.selection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+}
+
+.selection-chips .word-chip {
+  background: var(--sunk);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  padding: 0.25em 0.7em;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+
+.selection-chips .word-chip:hover {
+  border-color: var(--cinnabar);
+  color: var(--cinnabar);
+}
+
+.selection-chips .word-chip::after {
+  content: ' \00d7';
+}
 
 .pool-form-note {
   margin: 0.5rem 0 0;
@@ -841,11 +931,8 @@ kbd {
     max-height: none;
     border-left: none;
     border-top: 1px solid var(--hair);
-    /* At full height there is room to pin the forms and let only the list
-       scroll (as `.library` pins its head and scrolls just the tree). Here
-       there usually is not: the two forms alone can be taller than the row,
-       so the pane scrolls as one piece instead of squeezing the list to a
-       sliver above always-visible forms. */
+    /* Keep every pool control reachable together, even when the list of
+       recent texts is full. */
     overflow-y: auto;
   }
   .pools-list {

@@ -30,12 +30,17 @@ class Load(FileCommand):
     # something like `load /etc/passwd`.
     if source.endswith('.txt') or '/' in source:
       try:
-        words = self.fm.get_words(source)
+        if hasattr(self.fm, 'get_words_and_counts'):
+          words, counts = self.fm.get_words_and_counts(source)
+        else:
+          words = self.fm.get_words(source)
+          counts = {w: 1 for w in words}
       except UnreadableSource as e:
         return CommandResult.fail(
             f'{e}\nNo words found in {source}; keeping the current pool.')
     elif source in context:
       words = context[source]
+      counts = getattr(context, 'counts', {}).get(source, {w: 1 for w in words})
     else:
       return CommandResult.fail(f'Tried to load from context value {source}, but valid values are {list(context.keys())}.')
 
@@ -45,4 +50,5 @@ class Load(FileCommand):
     # Without it a load typed at the command line left the page still
     # naming whatever had been loaded by button before it.
     return CommandResult(updates={'words': words},
+                         counts={'words': counts},
                          data={'size': len(words), 'source': source})

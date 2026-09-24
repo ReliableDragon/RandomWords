@@ -141,6 +141,57 @@ class WebRoutesTest(unittest.TestCase):
         self.assertEqual(self.go('POST', '/api/draw',
                                  body={'count': count}).status, 400)
 
+  def test_draw_weighted(self):
+    self.load_a_text()
+    response = self.go('POST', '/api/draw', body={'count': 2, 'weighted': True})
+    self.assertEqual(response.status, 200)
+    self.assertEqual(len(response.payload['data']['drawn']), 2)
+    self.assertIn('counts', response.payload['data'])
+
+  def test_multi_draw_returns_one_word_per_source_without_replacing_active_pool(self):
+    self.load_a_text()
+    self.go('POST', '/api/pools/save', body={'name': 'saved'})
+
+    response = self.go('POST', '/api/draw/multi',
+                       body={'sources': ['saved', self.td.td.tf4_path]})
+
+    self.assertEqual(response.status, 200)
+    self.assertEqual(len(response.payload['data']['drawn']), 2)
+    self.assertIn(response.payload['data']['drawn'][0], ['a', 'b', 'c'])
+    self.assertIn(response.payload['data']['drawn'][1], ['one', 'two', 'three'])
+    self.assertCountEqual(self.session.context['words'], ['a', 'b', 'c'])
+
+  def test_multi_draw_requires_nonempty_string_sources(self):
+    for body in [None, {}, {'sources': []}, {'sources': 'saved'},
+                 {'sources': ['saved', '']}, {'sources': ['saved', 1]}]:
+      with self.subTest(body=body):
+        response = self.go('POST', '/api/draw/multi', body=body)
+        self.assertEqual(response.status, 400)
+
+  def test_multi_draw_limits_the_number_of_sources(self):
+    response = self.go('POST', '/api/draw/multi',
+                       body={'sources': ['missing'] * 1001})
+    self.assertEqual(response.status, 400)
+    self.assertIn('at most 1000', response.payload['message'])
+
+  def test_mode_endpoint(self):
+    get_res = self.go('GET', '/api/mode')
+    self.assertEqual(get_res.status, 200)
+    self.assertEqual(get_res.payload['mode'], 'uniform')
+
+    post_res = self.go('POST', '/api/mode', body={'mode': 'weighted'})
+    self.assertEqual(post_res.status, 200)
+    self.assertEqual(post_res.payload['data']['mode'], 'weighted')
+    self.assertEqual(self.session.sampling_mode, 'weighted')
+
+    bad_res = self.go('POST', '/api/mode', body={'mode': 'invalid'})
+    self.assertEqual(bad_res.status, 400)
+
+  def test_status_includes_mode(self):
+    res = self.go('GET', '/api/status')
+    self.assertEqual(res.status, 200)
+    self.assertEqual(res.payload['mode'], 'uniform')
+
   ###
   ### the command language
   ###
@@ -331,9 +382,58 @@ class WebRoutesTest(unittest.TestCase):
 
   def test_combine_needs_two_pools(self):
     for body in [{'op': 'union'}, {'op': 'union', 'a': 'a'},
-                 {'op': 'union', 'b': 'b'}]:
+                 {'op': 'union', 'b': 'b'}, {'op': 'union', 'sources': ['a']}]:
       with self.subTest(body=body):
         self.assertEqual(self.go('POST', '/api/pools/op', body=body).status, 400)
+
+  def test_combine_union_of_three_pools(self):
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'b', 'from': self.td.td.tf4_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'c', 'from': self.td.td.tf5_path})
+
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'union', 'sources': ['a', 'b', 'c'],
+                             'out': 'all'})
+
+    sizes = {p['name']: p['size'] for p in response.payload['pools']}
+    self.assertEqual(sizes['all'], 7)
+    self.assertCountEqual(self.session.context['all'],
+                          ['a', 'b', 'c', 'one', 'two', 'three', 'five'])
+
+  def test_combine_intersection_of_three_pools(self):
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'b', 'from': self.td.td.tf1_path})
+    self.go('POST', '/api/pools/save',
+            body={'name': 'c', 'from': self.td.td.tf1_path})
+
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'intersection', 'sources': ['a', 'b', 'c'],
+                             'out': 'shared'})
+
+    sizes = {p['name']: p['size'] for p in response.payload['pools']}
+    self.assertEqual(sizes['shared'], 3)
+    self.assertCountEqual(self.session.context['shared'], ['a', 'b', 'c'])
+
+  def test_combine_sources_accepts_a_raw_text_alongside_a_pool(self):
+    # A text needs no alias step first: it resolves as a source the same
+    # way a saved pool name does.
+    self.go('POST', '/api/pools/save',
+            body={'name': 'a', 'from': self.td.td.tf1_path})
+
+    response = self.go('POST', '/api/pools/op',
+                       body={'op': 'union',
+                             'sources': ['a', self.td.td.tf5_path],
+                             'out': 'mixed'})
+
+    sizes = {p['name']: p['size'] for p in response.payload['pools']}
+    self.assertEqual(sizes['mixed'], 4)
+    self.assertCountEqual(self.session.context['mixed'],
+                          ['a', 'b', 'c', 'five'])
 
   def test_combine_onto_an_existing_out_asks_first(self):
     self.go('POST', '/api/pools/save',
