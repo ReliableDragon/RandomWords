@@ -497,7 +497,8 @@ Coot, and there are Fenaya and the Coot. What story writing adds first is an
 ordered report of what appears where. It does not pretend that scene order is
 the same thing as the reader's introduction or a character's knowledge.
 
-- **Scenes** are notes under a configured story folder with a small,
+- **Scenes** are notes under one or more configured, existing,
+  vault-relative folders (`--story-folder Story`, repeatable) with a small,
   deliberately supported frontmatter contract that Obsidian's properties
   pane can also edit:
 
@@ -510,34 +511,38 @@ the same thing as the reader's introduction or a character's knowledge.
   ```
 
   `when` is an integer; ties break by canonical scene path and missing or
-  invalid values sort last with a diagnostic. `where` accepts one wikilink or
+  invalid values sort last. Missing or invalid values in supported frontmatter
+  produce a diagnostic. `where` accepts one wikilink or
   a list, and `who` accepts a list. The parser supports only frontmatter
   scalars plus block or quoted flow lists; unsupported YAML remains raw and
   gets a diagnostic rather than a guess. This covers the vault's existing
   scalar `aliases: Juran`, block-list aliases, and the scene form without
   taking on all of YAML. Parsed fields remain views over the source, so saving
   an unrelated edit does not reformat frontmatter.
-- **Appearance report.** Scenes sorted by `when` report the first and later
-  body mention of every resolved entry. Metadata references from `where` and
-  `who` are shown separately: they pin reference cards but do not count as a
-  prose appearance. The first version makes no "introduced too late" warning;
-  a mention is not proof that the narrative introduced a subject there.
+- **Appearance report.** The Story view's global report lists every resolved
+  entry found in the configured scenes, with the first and later scene. Each
+  scene card labels its body references **Entries mentioned**. Metadata
+  references from `where` and `who` appear separately; they pin reference
+  cards but do not count as prose appearances. The first version makes no
+  "introduced too late" warning; a mention is not proof that the narrative
+  introduced a subject there.
 - **Later continuity metadata.** Richer checks need explicit semantics such
   as `introduces`, point of view, and character `discovers` or `knows`
   events. Co-presence in a scene does not establish knowledge, and narration,
   flashbacks and secrets make that shortcut actively misleading. If those
   fields prove pleasant to maintain, later checks remain advisory and cite
   the metadata that produced them.
-- **Voices.** The 29 attributed quotations, eight speakers, gathered onto
-  each person's page automatically. Juran Calota has eight lines on record
-  and Kath Ingerson one; when drafting a new one, the existing ones are
-  beside it. The People notes already carry aliases (`de Relba`,
-  `Arin de Relba`), so mention detection for people works today.
-- **Export.** A folder or the story compiled to one HTML page in the app's
-  typography, wikilinks turned into anchors, with a glossary of every entry
-  referenced, in first-mention order for a story and alphabetical for a
-  biome. Reading a biome straight through is the best consistency check
-  there is, and today it takes opening fifty files.
+- **Voices.** A People entry in a scene's **Entries mentioned** list has a
+  **Voice** control for its attributed quotes from across the vault. A quote
+  is a blockquote followed by an attribution line such as `- [[Arin]]`; the
+  speaker link resolves to a canonical People note, and the quote links back
+  to its source note.
+- **Export.** The Story view downloads the configured story or one of its
+  configured folders as a single HTML page. Wikilinks become safe local
+  anchors, and the glossary contains each resolved body or metadata reference
+  once. Story entries follow scene order; folder glossary entries follow
+  alphabetical title and canonical path order. Distinct notes with the same
+  title retain separate anchors and glossary entries.
 
 ---
 
@@ -632,8 +637,8 @@ concern, with a test beside each.
 ## Phases
 
 Each phase is usable when it lands and none needs the next.
-Implementation status on this branch as of 2026-09-24: phases 1–3 are
-implemented; phase 4 remains future work. The descriptions and acceptance
+Implementation status on this branch as of 2026-09-24: phases 1–4 are
+implemented. The descriptions and acceptance
 criteria below retain the original proposal.
 
 1. **The writing loop.** Add `--vault`, path-safe and revision-safe vault
@@ -686,13 +691,19 @@ criteria below retain the original proposal.
    introduction or discovery metadata and advisory continuity checks are a
    later extension, only if the metadata is worth maintaining.
 
-   **Acceptance:** missing, duplicate and invalid `when` values have stable
-   documented outcomes; `where` and `who` references do not count as body
-   appearances; duplicate note titles produce distinct anchors and glossary
-   entries; story notes outside the supported frontmatter subset stay editable
-   and receive a visible diagnostic.
+   **Acceptance:** missing and invalid `when` values sort last, and equal
+   values sort by canonical scene path; `where` and `who` references do not
+   count as body appearances; duplicate note titles produce distinct anchors
+   and glossary entries; story notes outside the supported frontmatter subset
+   stay editable and receive a visible diagnostic.
 
-   **Status on this branch (2026-09-24): Future work.**
+   **Status on this branch (2026-09-24): Implemented.** Story folders are
+   repeatable `--story-folder` vault-relative paths. The Story view reports
+   ordering, diagnostics, separate metadata references and body appearances,
+   attributed voices, and downloadable story or folder HTML exports. The export
+   glossary includes resolved body and metadata references once each, with
+   folder entries ordered by title and canonical path. Unsupported frontmatter
+   stays in the editable source and is reported in the view.
 
 The first phase is intentionally the feature that earns the rest. The force
 layout, Base interpreter and inferred character knowledge are not prerequisites

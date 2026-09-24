@@ -116,6 +116,26 @@ notes, and suggest existing entries mentioned in a draft or sharing its biome
 or tags. It reads the vault in place; no import or index file is written to
 the vault.
 
+Configure one or more existing, vault-relative scene folders with the
+repeatable `--story-folder` option, for example:
+
+```bash
+python3 serve.py --vault ~/Documents/Worldbuilding \
+  --story-folder Story --story-folder Drafts
+```
+
+The **Story** view lists Markdown notes in those folders in ascending integer
+`when` order, with canonical path as the tie-breaker when values match. Notes
+with a missing or invalid `when` sort after numbered scenes; malformed or
+unsupported story frontmatter is shown with a diagnostic. `where` and `who`
+metadata appear as separate reference cards and do not count as prose
+appearances. The Story view also has a global appearance report for every
+resolved entry found in those scenes, with its first and later scene. Each
+scene card labels its body references **Entries mentioned**; `where` and `who`
+remain separate metadata cards. **Voice** appears for People entries and
+opens their attributed quotes. The view can open each scene and download
+either the compiled story or an HTML export of any configured folder.
+
 The **Map** tab shows the whole-vault graph, the one- or two-link neighborhood
 around an open entry, and a biome-sector view. It distinguishes resolved,
 unresolved, and ambiguous links, marks stubs and `#rework` notes, and can show
