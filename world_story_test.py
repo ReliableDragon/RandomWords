@@ -61,6 +61,7 @@ class StoryTest(unittest.TestCase):
 
     def test_quotes_filter_by_canonical_speaker_path(self):
         data = quotes(self.index, "People/Arin.md")
+        self.assertEqual(len(data["quotes"]), 1)
         self.assertEqual(data["quotes"][0]["path"], "People/Quotes.md")
         self.assertEqual(data["quotes"][0]["speaker"]["path"], "People/Arin.md")
         self.assertEqual(data["quotes"][0]["text"], "The marsh remembers.\nIts reeds do too.")
@@ -80,6 +81,8 @@ class StoryTest(unittest.TestCase):
         self.assertEqual(html.count('id="entry-Places%2FFenaya.md"'), 0)
         self.assertEqual(html.count('id="glossary-Places%2FFenaya.md"'), 1)
         self.assertIn("font:18px Georgia", html)
+        self.assertEqual([row["path"] for row in data["glossary"][:2]],
+                         ["Places/Fenaya.md", "People/Arin.md"])
 
     def test_ambiguous_plain_names_do_not_become_two_appearances(self):
         self.write("Story/ambiguous.md", "---\nwhen: 5\n---\nFenaya is distant.\n")
@@ -89,6 +92,15 @@ class StoryTest(unittest.TestCase):
         self.assertEqual(scene["appearances"], [])
         self.assertIn("Ambiguous prose reference: Fenaya.", scene["diagnostics"])
 
+    def test_ambiguous_metadata_keeps_candidates_and_diagnostic(self):
+        self.write("Story/metadata.md", "---\nwhen: 6\nwhere: \"[[Fenaya]]\"\n---\nText.\n")
+        self.index.build()
+        scene = next(row for row in report(self.index, ["Story"])["scenes"]
+                     if row["path"] == "Story/metadata.md")
+        self.assertEqual(scene["where"][0]["candidates"],
+                         ["Other/Fenaya.md", "Places/Fenaya.md"])
+        self.assertIn("Ambiguous metadata reference.", scene["diagnostics"][0])
+
     def test_story_folder_config_rejects_noncanonical_or_missing_directories(self):
         with self.assertRaises(ValueError):
             VaultIndex(VaultManager(self.root), story_folders=["../Story"])
@@ -96,6 +108,15 @@ class StoryTest(unittest.TestCase):
             VaultIndex(VaultManager(self.root), story_folders=[".obsidian"])
         with self.assertRaises(ValueError):
             VaultIndex(VaultManager(self.root), story_folders=["Missing"])
+
+    def test_scene_without_frontmatter_is_diagnosed_and_keeps_body(self):
+        self.write("Story/no-frontmatter.md", "Arin appears here.\n")
+        self.index.build()
+        scene = next(row for row in report(self.index, ["Story"])["scenes"]
+                     if row["path"] == "Story/no-frontmatter.md")
+        self.assertIsNone(scene["when"])
+        self.assertIn("Story `when` is missing; this scene sorts last.", scene["diagnostics"])
+        self.assertEqual(scene["appearances"][0]["path"], "People/Arin.md")
 
 
 if __name__ == "__main__":

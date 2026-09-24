@@ -77,6 +77,7 @@ def parse_scene(raw):
               "diagnostics": [], "frontmatter": False}
     lines = raw.splitlines(keepends=True)
     if not lines or lines[0].lstrip("\ufeff").strip() != "---":
+        result["diagnostics"].append("Story `when` is missing; this scene sorts last.")
         return result
     close = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
     if close is None:
@@ -145,7 +146,13 @@ def _references(index, source, targets):
             entry = index.entries[path]
             rows.append({"path": path, "title": entry.title})
         else:
-            rows.append({"target": target, "diagnostic": "Unresolved metadata reference."})
+            resolution = index.resolve(target, source)
+            candidates = list(getattr(resolution, "candidates", ()))
+            if getattr(resolution, "status", None) == "ambiguous":
+                rows.append({"target": target, "candidates": candidates,
+                             "diagnostic": "Ambiguous metadata reference."})
+            else:
+                rows.append({"target": target, "diagnostic": "Unresolved metadata reference."})
     return rows
 
 
@@ -192,13 +199,15 @@ def report(index, folders):
     for path in _scene_paths(index.entries, folders):
         entry = index.entries[path]
         meta = parse_scene(entry.raw)
+        where, who = _references(index, path, meta["where"]), _references(index, path, meta["who"])
+        reference_diagnostics = [f"{row['diagnostic']} {row['target']}"
+                                 for row in [*where, *who] if "diagnostic" in row]
         scene = {"path": path, "title": entry.title, "when": meta["when"],
-                 "diagnostics": meta["diagnostics"],
-                 "where": _references(index, path, meta["where"]),
-                 "who": _references(index, path, meta["who"])}
+                 "diagnostics": [*meta["diagnostics"], *reference_diagnostics],
+                 "where": where, "who": who}
         appearances, mention_diagnostics = _body_mentions(index, entry, meta["body"])
         scene["appearances"] = appearances
-        scene["diagnostics"] = [*meta["diagnostics"], *mention_diagnostics]
+        scene["diagnostics"] = [*scene["diagnostics"], *mention_diagnostics]
         scenes.append(scene)
     scenes.sort(key=lambda row: (row["when"] is None, row["when"] if row["when"] is not None else 0,
                                  row["path"]))
@@ -223,7 +232,7 @@ def quotes(index, by=None):
     for path, entry in sorted(index.entries.items()):
         lines = entry.body.splitlines()
         for start, line in enumerate(lines):
-            if not line.startswith(">"):
+            if not line.startswith(">") or (start and lines[start - 1].startswith(">")):
                 continue
             end, quote_lines = start, []
             while end < len(lines) and lines[end].startswith(">"):
@@ -259,22 +268,33 @@ def _render_export_entry(index, entry, anchors):
 def export(index, folders, path=None):
     configured = story_folders(folders)
     if path in (None, "", "story"):
-        selected = [row["path"] for row in report(index, configured)["scenes"]]
+        story_data = report(index, configured)
+        selected = [row["path"] for row in story_data["scenes"]]
     else:
+        story_data = None
         prefix = path.rstrip("/") + "/"
         selected = sorted(item for item in index.entries if item.startswith(prefix))
         if not selected:
             raise ValueError("Export path must name a vault folder or `story`.")
-    glossary = []
-    seen = set()
-    for item in selected:
-        entry = index.entries[item]
-        for match in _WIKILINK.finditer(entry.body):
-            target = match.group(1).split("|", 1)[0].split("#", 1)[0].strip()
-            resolved = _resolved(index, target, item)
-            if resolved and resolved not in seen:
-                seen.add(resolved)
-                glossary.append(resolved)
+    glossary, seen = [], set()
+    def add(item):
+        if item and item not in seen:
+            seen.add(item)
+            glossary.append(item)
+    if story_data is not None:
+        for scene in story_data["scenes"]:
+            for reference in [*scene["where"], *scene["who"]]:
+                add(reference.get("path"))
+            for appearance in scene["appearances"]:
+                add(appearance["path"])
+    else:
+        for item in selected:
+            entry = index.entries[item]
+            meta = parse_scene(entry.raw)
+            for target in [*meta["where"], *meta["who"]]:
+                add(_resolved(index, target, item))
+            for appearance in _body_mentions(index, entry, meta["body"])[0]:
+                add(appearance["path"])
     if path not in (None, "", "story"):
         glossary.sort(key=lambda item: (index.entries[item].title.casefold(), item))
     title = "Story" if path in (None, "", "story") else path
