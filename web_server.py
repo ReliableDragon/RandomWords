@@ -184,9 +184,6 @@ def make_server(port=0, root=None, host='127.0.0.1', index=None, vault=None,
                 world_index=None, story_folders=None):
   fm = CachingFileManager() if root is None else CachingFileManager(root)
   index = WordIndex(fm) if index is None else index
-  server = ThreadingHTTPServer((host, port), Handler)
-  server.fm = fm
-  server.index = index
   if vault is not None:
     from vault import VaultManager
     from vault_index import VaultIndex
@@ -194,7 +191,11 @@ def make_server(port=0, root=None, host='127.0.0.1', index=None, vault=None,
     world_index = world_index or VaultIndex(vault, story_folders=story_folders)
   if world_index is not None and story_folders is not None:
     from world_story import story_folders as normalize_story_folders
-    world_index.story_folders = normalize_story_folders(story_folders)
+    world_index.story_folders = normalize_story_folders(story_folders, vault)
+  # Validate vault and story-folder configuration before binding a socket.
+  server = ThreadingHTTPServer((host, port), Handler)
+  server.fm = fm
+  server.index = index
   server.vault = vault
   server.world_index = world_index
   server.sessions = SessionStore(fm, index)

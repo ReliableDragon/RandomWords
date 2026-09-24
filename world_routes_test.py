@@ -386,6 +386,16 @@ class WorldRoutesTest(unittest.TestCase):
                            world_index=index))
         self.assertEqual(invalid.status, 400)
 
+    def test_story_entry_exposes_frontmatter_diagnostics(self):
+        os.makedirs(os.path.join(self.root, "Story"))
+        with open(os.path.join(self.root, "Story", "Broken.md"), "w", encoding="utf8") as f:
+            f.write("---\nwhen: later\n---\nDraft.\n")
+        index = VaultIndex(self.vault, stat_interval=3600, story_folders=["Story"])
+        opened = dispatch(self.request("GET", "/api/world/entry", {"path": "Story/Broken.md"},
+                                       world_index=index))
+        self.assertEqual(opened.status, 200)
+        self.assertIn("Story `when` must be an integer", opened.payload["data"]["diagnostics"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

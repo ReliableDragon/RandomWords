@@ -60,7 +60,7 @@ class VaultIndex:
         mappings = DEFAULT_FOLDER_BIOMES if folder_biomes is None else folder_biomes
         self.folder_biomes = {_key(k): v for k, v in mappings.items()}
         from world_story import story_folders as normalize_story_folders
-        self.story_folders = normalize_story_folders(story_folders)
+        self.story_folders = normalize_story_folders(story_folders, vault)
         self._lock = threading.RLock()
         self._build_lock = threading.Lock()
         self._last_stat = 0.0

@@ -171,6 +171,11 @@ def get_entry(req):
         return _fail(400, "Which vault entry should I open?")
     text, revision = req.vault.read(path)
     item = parse(text, path, revision)
+    story_diagnostics = []
+    folders = getattr(req.world_index, "story_folders", ()) if req.world_index is not None else ()
+    if any(path.startswith(folder + "/") for folder in folders):
+        from world_story import parse_scene
+        story_diagnostics = parse_scene(text)["diagnostics"]
     html = render(item, lambda target: _resolve(req, target, path),
                   base_entries=_index_entries(req.world_index),
                   base_resolve=lambda target, source: _resolution(req, target, source))
@@ -190,6 +195,7 @@ def get_entry(req):
     return _ok("Vault entry loaded.", {
         "path": path, "text": text, "revision": revision,
         "entry": _entry_dict(item), "html": html, "links": links,
+        "diagnostics": story_diagnostics,
         "backlinks": _backlinks(req, path),
     })
 

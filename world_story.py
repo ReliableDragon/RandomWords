@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from html import escape
+import os
 import re
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from entry import _WIKILINK, render
 
@@ -11,13 +12,20 @@ from entry import _WIKILINK, render
 _KEY = re.compile(r"^([A-Za-z_][\w-]*):\s*(.*)$")
 
 
-def story_folders(folders):
+def story_folders(folders, vault=None):
     """Canonicalize configured folders without guessing at vault paths."""
     result = []
     for folder in folders or ():
         if not isinstance(folder, str):
             continue
-        value = folder.replace("\\", "/").strip(" /")
+        value = folder.replace("\\", "/")
+        if (not value or value.startswith("/") or any(part in ("", ".", "..") or part.startswith(".")
+                                                        for part in value.split("/"))):
+            raise ValueError("Story folders must be canonical vault-relative directories.")
+        if vault is not None:
+            full = vault.resolve(value)
+            if not os.path.isdir(full) or vault.relative(full) != value:
+                raise ValueError("Story folders must be existing canonical vault directories.")
         if value and value not in result:
             result.append(value)
     return tuple(result)
@@ -34,7 +42,22 @@ def _values(value):
         value = value[1:-1]
     if not value:
         return []
-    return [part.strip().strip("\"'") for part in value.split(",") if part.strip()]
+    result, current, quote_mark = [], [], None
+    for char in value + ",":
+        if char in "\"'":
+            if quote_mark is None:
+                quote_mark = char
+            elif quote_mark == char:
+                quote_mark = None
+            current.append(char)
+        elif char == "," and quote_mark is None:
+            item = "".join(current).strip().strip("\"'")
+            if item:
+                result.append(item)
+            current = []
+        else:
+            current.append(char)
+    return result
 
 
 def _links(values):
@@ -68,7 +91,7 @@ def parse_scene(raw):
         match = _KEY.match(row)
         if match:
             current, value = match.group(1).lower(), match.group(2)
-            if current not in ("when", "where", "who"):
+            if current not in ("when", "where", "who", "aliases"):
                 supported = False
                 continue
             if value.lstrip().startswith(("{", "&", "*", "|", ">")):
@@ -80,7 +103,7 @@ def parse_scene(raw):
                 values[current] = []
             continue
         list_item = re.match(r"^\s+-\s+(.+)$", row)
-        if list_item and current in ("where", "who") and current in values:
+        if list_item and current in ("where", "who", "aliases") and current in values:
             values[current].extend(_values(list_item.group(1)))
             continue
         if row.strip() and not row.lstrip().startswith("#"):
@@ -128,26 +151,40 @@ def _references(index, source, targets):
 
 def _body_mentions(index, entry, body):
     """Find resolved prose mentions, keeping metadata out of the scan."""
-    found = {}
+    found, diagnostics = {}, []
     plain_body = _WIKILINK.sub(lambda match: " " * len(match.group()), body)
-    for path, candidate in index.entries.items():
-        if path == entry.path:
+    names = {name for candidate in index.entries.values()
+             for name in [candidate.title, *candidate.aliases] if name}
+    for name in sorted(names, key=lambda item: (item.casefold(), item)):
+        resolution = index.resolve(name, entry.path)
+        path = getattr(resolution, "path", None)
+        status = getattr(resolution, "status", None)
+        positions = [match.start() for match in re.finditer(
+            r"(?<!\w)" + re.escape(name) + r"(?!\w)", plain_body, re.I)]
+        if positions and not path:
+            if status == "ambiguous":
+                diagnostics.append(f"Ambiguous prose reference: {name}.")
             continue
-        names = [candidate.title, *candidate.aliases]
-        positions = []
-        for name in names:
-            if name:
-                positions.extend(match.start() for match in re.finditer(
-                    r"(?<!\w)" + re.escape(name) + r"(?!\w)", plain_body, re.I))
+        if path and path != entry.path and positions:
+            candidate = index.entries[path]
+            found[path] = {"path": path, "title": candidate.title,
+                           "first": min(positions), "later": sorted(set(positions))[1:]}
         # Wikilinks require resolution because titles may collide.
         for match in _WIKILINK.finditer(body):
             target = match.group(1).split("|", 1)[0].split("#", 1)[0].strip()
-            if _resolved(index, target, entry.path) == path:
-                positions.append(match.start())
-        if positions:
-            found[path] = {"path": path, "title": candidate.title,
-                           "first": min(positions), "later": sorted(set(positions))[1:]}
-    return list(sorted(found.values(), key=lambda row: (row["first"], row["path"])))
+            resolved = _resolved(index, target, entry.path)
+            if resolved and resolved != entry.path:
+                candidate = index.entries[resolved]
+                row = found.setdefault(resolved, {"path": resolved, "title": candidate.title,
+                                                  "first": match.start(), "later": []})
+                if match.start() < row["first"]:
+                    row["later"].append(row["first"])
+                    row["first"] = match.start()
+                elif match.start() != row["first"]:
+                    row["later"].append(match.start())
+    for row in found.values():
+        row["later"] = sorted(set(row["later"]))
+    return list(sorted(found.values(), key=lambda row: (row["first"], row["path"]))), diagnostics
 
 
 def report(index, folders):
@@ -158,29 +195,49 @@ def report(index, folders):
         scene = {"path": path, "title": entry.title, "when": meta["when"],
                  "diagnostics": meta["diagnostics"],
                  "where": _references(index, path, meta["where"]),
-                 "who": _references(index, path, meta["who"]),
-                 "appearances": _body_mentions(index, entry, meta["body"])}
+                 "who": _references(index, path, meta["who"])}
+        appearances, mention_diagnostics = _body_mentions(index, entry, meta["body"])
+        scene["appearances"] = appearances
+        scene["diagnostics"] = [*meta["diagnostics"], *mention_diagnostics]
         scenes.append(scene)
     scenes.sort(key=lambda row: (row["when"] is None, row["when"] if row["when"] is not None else 0,
                                  row["path"]))
+    aggregate = {}
+    for scene in scenes:
+        for appearance in scene["appearances"]:
+            row = aggregate.setdefault(appearance["path"], {"path": appearance["path"],
+                                      "title": appearance["title"], "first_scene": scene["path"],
+                                      "later_scenes": []})
+            if row["first_scene"] != scene["path"] and scene["path"] not in row["later_scenes"]:
+                row["later_scenes"].append(scene["path"])
     return {"folders": list(story_folders(folders)), "scenes": scenes,
+            "appearances": list(aggregate.values()),
             "diagnostics": [{"path": scene["path"], "message": message}
                             for scene in scenes for message in scene["diagnostics"]]}
 
 
-_QUOTE = re.compile(r"(?ms)(?:^|\n)>?\s*(.+?)\s*\n\s*-\s*\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
-
-
 def quotes(index, by=None):
-    if by and by not in index.entries:
-        raise ValueError("Quotation speaker must be a canonical vault path.")
+    if by and (by not in index.entries or not by.startswith("People/")):
+        raise ValueError("Quotation speaker must be a canonical People note path.")
     rows = []
     for path, entry in sorted(index.entries.items()):
-        for match in _QUOTE.finditer(entry.body):
-            speaker = _resolved(index, match.group(2).strip(), path)
+        lines = entry.body.splitlines()
+        for start, line in enumerate(lines):
+            if not line.startswith(">"):
+                continue
+            end, quote_lines = start, []
+            while end < len(lines) and lines[end].startswith(">"):
+                quote_lines.append(lines[end][1:].lstrip())
+                end += 1
+            if end >= len(lines):
+                continue
+            match = re.fullmatch(r"-\s*\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]\s*", lines[end])
+            if not match:
+                continue
+            speaker = _resolved(index, match.group(1).strip(), path)
             if not speaker or (by and speaker != by):
                 continue
-            rows.append({"path": path, "title": entry.title, "text": match.group(1).strip(),
+            rows.append({"path": path, "title": entry.title, "text": "\n".join(quote_lines).strip(),
                          "speaker": {"path": speaker, "title": index.entries[speaker].title}})
     return {"by": by, "quotes": rows}
 
@@ -189,13 +246,13 @@ def _anchor(path):
     return "entry-" + quote(path, safe="")
 
 
-def _render_export_entry(index, entry):
+def _render_export_entry(index, entry, anchors):
     html = render(entry, lambda target: index.resolve(target, entry.path),
                   base_entries=list(index.entries.values()),
                   base_resolve=lambda target, source: index.resolve(target, source))
     def local(match):
-        path = match.group(1)
-        return f'href="#{_anchor(path)}"' if path in index.entries else match.group(0)
+        path = unquote(match.group(1))
+        return f'href="#{anchors[path]}"' if path in anchors else match.group(0)
     return re.sub(r'href="/world/entry\?path=([^"#]+)"', local, html)
 
 
@@ -221,15 +278,25 @@ def export(index, folders, path=None):
     if path not in (None, "", "story"):
         glossary.sort(key=lambda item: (index.entries[item].title.casefold(), item))
     title = "Story" if path in (None, "", "story") else path
+    anchors = {item: _anchor(item) for item in selected}
+    anchors.update({item: "glossary-" + quote(item, safe="") for item in glossary if item not in anchors})
     parts = ["<!doctype html><html><head><meta charset=\"utf-8\"><title>" + escape(title) +
-             "</title></head><body><main><h1>" + escape(title) + "</h1>"]
+             "</title><style>:root{color:#201f1c;background:#f7f4ec;font:18px Georgia,serif}"
+             "body{max-width:48rem;margin:3rem auto;padding:0 1rem;line-height:1.55}"
+             "h1,h2{font-family:system-ui,sans-serif}article,section{margin:2rem 0}"
+             "a{color:#285f4d}</style></head><body><main><h1>" + escape(title) + "</h1>"]
     for item in selected:
         entry = index.entries[item]
         parts.append(f'<article id="{_anchor(item)}"><h2>{escape(entry.title)}</h2>' +
-                     _render_export_entry(index, entry) + "</article>")
+                     _render_export_entry(index, entry, anchors) + "</article>")
     parts.append("<section><h2>Glossary</h2><ul>")
     for item in glossary:
-        parts.append(f'<li id="{_anchor(item)}"><a href="#{_anchor(item)}">{escape(index.entries[item].title)}</a></li>')
+        target = anchors[item]
+        if item in selected:
+            parts.append(f'<li><a href="#{target}">{escape(index.entries[item].title)}</a></li>')
+        else:
+            parts.append(f'<li id="{target}"><strong>{escape(index.entries[item].title)}</strong>' +
+                         _render_export_entry(index, index.entries[item], anchors) + "</li>")
     parts.append("</ul></section></main></body></html>")
     return {"path": path or "story", "html": "".join(parts), "entries": selected,
             "glossary": [{"path": item, "title": index.entries[item].title} for item in glossary]}
