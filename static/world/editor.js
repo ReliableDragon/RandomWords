@@ -572,13 +572,14 @@ export function resumeNewDraft(id) {
   const resumeId = wasCurrent && left ? left.id : id;
   const saved = storage.readNewDraft(resumeId);
   if (!saved) return false;
-  const { draft, text, copied, kept } = draftFromRecord(saved);
+  const { draft, text, copied } = draftFromRecord(saved);
   startNewDraft(draft, '');
   showNewDraft(text);
-  if (copied && kept) {
+  const retained = storage.readNewDraft(draft.id);
+  if (copied && retained) {
     showNotice('Opened a separate copy to preserve the earlier browser draft safely. '
       + 'Both versions are kept on this device.', true);
-  } else if (copied) {
+  } else if (copied && draftHasChanges(text)) {
     draftWarned = true;
     showNotice('Opened a separate copy to preserve the earlier browser draft safely. '
       + 'The earlier copy is still kept, but this browser could not keep this tab\'s copy. Save soon.', true);

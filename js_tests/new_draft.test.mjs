@@ -334,6 +334,19 @@ test('ownerless legacy drafts are cloned independently by concurrent document cl
   });
 });
 
+test('resuming an empty titleless legacy draft does not claim a second kept copy', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    storage.writeNewDraft('empty-legacy', {
+      text: '', title: '', folder: '', updated: '2026-10-03T09:00:00.000Z',
+    });
+    assert.equal(editor.resumeNewDraft('empty-legacy'), true);
+    assert.equal($('entryText').value, '');
+    assert.equal($('saveNotice').hidden, true);
+    assert.deepEqual(storage.listNewDrafts().map((item) => item.id), ['empty-legacy']);
+  });
+});
+
 test('a clone write failure never removes or overwrites the source draft', async () => {
   await withPage(routes(), async ({ $, store }) => {
     initDesk();
@@ -483,6 +496,7 @@ test('clearing an empty local state never deletes a foreign record at the same i
     });
     type($, '');
     assert.notEqual(state.newDraft.id, occupiedId);
+    assert.equal($('saveNotice').hidden, true, 'an empty local state does not claim a second kept copy');
     assert.equal(storage.readNewDraft(occupiedId).text, 'foreign words');
     assert.equal(await editor.openEntry('Overview.md'), true);
     assert.equal(storage.readNewDraft(occupiedId).text, 'foreign words');

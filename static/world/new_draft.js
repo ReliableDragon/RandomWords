@@ -142,7 +142,7 @@ export function persistNewDraft(text) {
     if (current.status === 'unreadable') return false;
     if (current.status === 'found' && current.value.writer === writerId()
       && storage.removeNewDraft(draft.id) === false) return false;
-    return copied ? 'copied' : true;
+    return true;
   }
   if (storage.writeNewDraft(draft.id, record(text)) === false) return false;
   return copied ? 'copied' : true;
