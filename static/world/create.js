@@ -18,7 +18,9 @@ import {
 import { emit, Events, on } from './events.js';
 import { offerIdeaRetry } from './idea.js';
 import { invalidateView } from './nav.js';
-import { activeDraftId, forgetNewDraft, makeDraft, setDraftSaver, startNewDraft } from './new_draft.js';
+import {
+  activeDraftId, forgetNewDraft, makeDraft, persistNewDraft, setDraftSaver, startNewDraft,
+} from './new_draft.js';
 import {
   clearPlacementIssue, initPlacement, noteFolderUsed, openPlacementPanel, showMissing, showSaveProblem,
 } from './placement.js';
@@ -147,6 +149,14 @@ async function saveNewDraft() {
     return false;
   }
   const text = getText();
+  const kept = persistNewDraft(text);
+  if (kept === false) {
+    showNotice('This browser could not keep a copy of your draft (its storage is full or blocked). '
+      + 'The save will still be attempted.', true);
+  } else if (kept === 'copied') {
+    showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
+      + 'Both versions remain available on this device.', true);
+  }
   const title = draft.title.trim();
   const payload = { folder: draft.folder, title, body: text, from_targets: [], origin: [], tags: [], template: null };
   if (draft.idea) payload.idea = draft.idea;

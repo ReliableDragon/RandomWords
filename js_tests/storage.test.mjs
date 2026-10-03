@@ -255,6 +255,43 @@ test('new-draft access is guarded when storage throws', () => {
   assert.doesNotThrow(() => storage.removeNewDraft('d'));
 });
 
+test('session preferences are scoped, survive through their own backend, and never throw', () => {
+  const local = fakeBackend();
+  const session = fakeBackend();
+  const one = createStorage({ backend: local, sessionBackend: session, accountScope: 'u1', worldScope: 'w1' });
+  const other = createStorage({ backend: local, sessionBackend: session, accountScope: 'u1', worldScope: 'w2' });
+  assert.equal(one.readSessionPref('activeNewDraft'), null);
+  assert.equal(one.writeSessionPref('activeNewDraft', { id: 'd1' }), true);
+  assert.deepEqual(one.readSessionPref('activeNewDraft'), { id: 'd1' });
+  assert.equal(other.readSessionPref('activeNewDraft'), null);
+  assert.equal(local.data.size, 0, 'a per-tab choice never leaks into local storage');
+  session.failAll = true;
+  assert.equal(one.readSessionPref('activeNewDraft'), null);
+  assert.equal(one.writeSessionPref('activeNewDraft', { id: 'd2' }), false);
+});
+
+test('new drafts retain empty text and Unicode metadata exactly', () => {
+  const storage = createStorage({ backend: fakeBackend() });
+  const saved = { text: '', title: '水辺 🐚', folder: '', writer: 'w-α', updated: '2026-10-03T09:00:00.000Z' };
+  assert.equal(storage.writeNewDraft('empty-unicode', saved), true);
+  assert.deepEqual(storage.readNewDraft('empty-unicode'), Object.assign({ v: 1, id: 'empty-unicode' }, saved));
+  assert.deepEqual(storage.listNewDrafts().map((item) => item.id), ['empty-unicode']);
+});
+
+test('new-draft inspection distinguishes missing, found and unreadable records', () => {
+  const backend = fakeBackend();
+  const storage = createStorage({ backend });
+  assert.deepEqual(storage.inspectNewDraft('d'), { status: 'missing' });
+  storage.writeNewDraft('d', newEntry);
+  assert.deepEqual(storage.inspectNewDraft('d'), {
+    status: 'found', value: Object.assign({ v: 1, id: 'd' }, newEntry),
+  });
+  backend.data.set(scopeKey('local', 'default', 'newdraft', 'd'), '{broken');
+  assert.deepEqual(storage.inspectNewDraft('d'), { status: 'unreadable' });
+  backend.failAll = true;
+  assert.deepEqual(storage.inspectNewDraft('d'), { status: 'unreadable' });
+});
+
 // -- Listing and clearing drafts (the welcome screen) ------------------------
 
 test('listDrafts lists existing-entry drafts newest first, with legacy ones in the local scope', () => {

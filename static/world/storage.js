@@ -29,13 +29,14 @@ export function scopeKey(accountScope, worldScope, kind, id) {
 }
 
 // Wraps window.localStorage lazily: even touching it can throw.
-export function browserBackend() {
+export function browserBackend(name) {
+  const storageName = name || 'localStorage';
   return {
-    getItem: (key) => globalThis.localStorage.getItem(key),
-    setItem: (key, value) => globalThis.localStorage.setItem(key, value),
-    removeItem: (key) => globalThis.localStorage.removeItem(key),
+    getItem: (key) => globalThis[storageName].getItem(key),
+    setItem: (key, value) => globalThis[storageName].setItem(key, value),
+    removeItem: (key) => globalThis[storageName].removeItem(key),
     keys: () => {
-      const store = globalThis.localStorage;
+      const store = globalThis[storageName];
       const names = [];
       for (let i = 0; i < store.length; i++) names.push(store.key(i));
       return names;
@@ -46,6 +47,7 @@ export function browserBackend() {
 // `backend` needs getItem/setItem/removeItem/keys. Every access is guarded.
 export function createStorage(options) {
   const backend = options.backend;
+  const sessionBackend = options.sessionBackend || null;
   const accountScope = options.accountScope || DEFAULT_CONFIG.accountScope;
   const worldScope = options.worldScope || DEFAULT_CONFIG.worldScope;
   const legacyAllowed = accountScope === DEFAULT_CONFIG.accountScope
@@ -57,6 +59,16 @@ export function createStorage(options) {
     try { backend.setItem(key, value); return true; } catch (_) { return false; }
   };
   const key = (kind, id) => scopeKey(accountScope, worldScope, kind, id);
+  const sessionGet = (name) => {
+    try { return sessionBackend ? sessionBackend.getItem(name) : null; } catch (_) { return null; }
+  };
+  const sessionSet = (name, value) => {
+    try {
+      if (!sessionBackend) return false;
+      sessionBackend.setItem(name, value);
+      return true;
+    } catch (_) { return false; }
+  };
 
   // Reads the raw string for `kind`, migrating a legacy value when present.
   function readRaw(kind, id, legacyKey) {
@@ -103,9 +115,22 @@ export function createStorage(options) {
   // only; the welcome screen lists them and offers to clear them.
   const newDraftPrefix = () => key('newdraft') + ':';
 
+  // Unlike the convenient read method, ownership checks must distinguish a
+  // missing key from a blocked/corrupt read. Treating either as absence could
+  // permit a later write to replace bytes we were unable to inspect.
+  function inspectNewDraft(id) {
+    let raw;
+    try { raw = backend.getItem(key('newdraft', id)); } catch (_) { return { status: 'unreadable' }; }
+    if (raw == null) return { status: 'missing' };
+    let saved;
+    try { saved = JSON.parse(raw); } catch (_) { return { status: 'unreadable' }; }
+    if (!saved || saved.v !== 1 || typeof saved.text !== 'string') return { status: 'unreadable' };
+    return { status: 'found', value: saved };
+  }
+
   function readNewDraft(id) {
-    const saved = parse(readRaw('newdraft', id, null));
-    return saved && saved.v === 1 && typeof saved.text === 'string' ? saved : null;
+    const found = inspectNewDraft(id);
+    return found.status === 'found' ? found.value : null;
   }
 
   function writeNewDraft(id, value) {
@@ -216,6 +241,17 @@ export function createStorage(options) {
     return writeRaw('pref', name, null, JSON.stringify(value));
   }
 
+  // Per-tab choices survive a reload without letting another tab replace
+  // them. sessionStorage can be unavailable just like localStorage, so these
+  // calls use the same guarded contract: null/false on failure.
+  function readSessionPref(name) {
+    return parse(sessionGet(key('pref', name)));
+  }
+
+  function writeSessionPref(name, value) {
+    return sessionSet(key('pref', name), JSON.stringify(value));
+  }
+
   // For logout: forget everything stored under this account, in any world.
   function clearAccount() {
     const prefix = 'rw:v2:' + encodeURIComponent(accountScope) + ':';
@@ -234,6 +270,7 @@ export function createStorage(options) {
     writeRecovery: recoveries.write,
     removeRecovery: recoveries.remove,
     readNewDraft,
+    inspectNewDraft,
     writeNewDraft,
     removeNewDraft,
     listNewDrafts,
@@ -247,12 +284,15 @@ export function createStorage(options) {
     writeKept,
     readPref,
     writePref,
+    readSessionPref,
+    writeSessionPref,
     clearAccount,
   };
 }
 
 export const storage = createStorage({
   backend: browserBackend(),
+  sessionBackend: browserBackend('sessionStorage'),
   accountScope: config.accountScope,
   worldScope: config.worldScope,
 });

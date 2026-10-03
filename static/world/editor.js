@@ -142,8 +142,15 @@ function warnDraftNotKept() {
 
 function storeDraft() {
   if (state.newDraft) {
-    if (persistNewDraft(getText()) === false) warnDraftNotKept();
-    else draftWarned = false;
+    const kept = persistNewDraft(getText());
+    if (kept === false) warnDraftNotKept();
+    else {
+      draftWarned = false;
+      if (kept === 'copied') {
+        showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
+          + 'Both versions remain available on this device.', true);
+      }
+    }
     return;
   }
   if (!state.current) return;
@@ -557,9 +564,17 @@ export function showNewDraft(text) {
 export function resumeNewDraft(id) {
   const saved = storage.readNewDraft(id);
   if (!saved) return false;
-  const { draft, text } = draftFromRecord(saved);
+  const { draft, text, copied, kept } = draftFromRecord(saved);
   startNewDraft(draft, '');
   showNewDraft(text);
+  if (copied && kept) {
+    showNotice('Opened a separate copy to preserve the earlier browser draft safely. '
+      + 'Both versions are kept on this device.', true);
+  } else if (copied) {
+    draftWarned = true;
+    showNotice('Opened a separate copy to preserve the earlier browser draft safely. '
+      + 'The earlier copy is still kept, but this browser could not keep this tab\'s copy. Save soon.', true);
+  }
   return true;
 }
 
@@ -568,7 +583,16 @@ export function resumeNewDraft(id) {
 function leaveNewDraft() {
   const draft = state.newDraft;
   if (!draft) return null;
-  const kept = draftHasChanges(getText()) ? { id: draft.id, title: draft.title.trim() } : null;
+  const changed = draftHasChanges(getText());
+  if (changed) {
+    const result = persistNewDraft(getText());
+    if (result === false) warnDraftNotKept();
+    else if (result === 'copied') {
+      showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
+        + 'Both versions remain available on this device.', true);
+    }
+  }
+  const kept = changed ? { id: draft.id, title: draft.title.trim() } : null;
   closeNewDraft();
   $('entryPane').classList.remove('is-new-draft');
   return kept;

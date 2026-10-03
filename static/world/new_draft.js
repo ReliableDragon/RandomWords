@@ -12,6 +12,37 @@ import { draftHasContent, newDraftId } from './draft_text.js';
 // The draft shown last, so a reload can pick it up again.
 const ACTIVE_PREF = 'activeNewDraft';
 
+// A fresh identity for this live document. It deliberately does not live in
+// sessionStorage: browsers copy sessionStorage into duplicated/window.open
+// tabs, which would let those tabs overwrite one another again.
+let documentWriter = '';
+
+function freshId(prefix) {
+  try {
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+      return prefix + globalThis.crypto.randomUUID();
+    }
+  } catch (_) { /* use the dependency-free fallback */ }
+  return prefix + newDraftId(Date.now(), Math.random()) + '-' + newDraftId(Date.now(), Math.random());
+}
+
+function writerId() {
+  if (!documentWriter) documentWriter = freshId('w-');
+  return documentWriter;
+}
+
+function setActiveDraft(id) {
+  // An object distinguishes an intentional "none" from unavailable session
+  // storage, where the old local preference remains the compatibility path.
+  if (storage.writeSessionPref(ACTIVE_PREF, { id }) === false) storage.writePref(ACTIVE_PREF, id);
+}
+
+function clearActiveDraft(id) {
+  const active = storage.readSessionPref(ACTIVE_PREF);
+  if (active && active.id === id) storage.writeSessionPref(ACTIVE_PREF, { id: null });
+  if (storage.readPref(ACTIVE_PREF) === id) storage.writePref(ACTIVE_PREF, null);
+}
+
 // What the text looked like when the draft opened (the prefilled headers).
 // Leaving it as it was does not count as writing anything.
 let initialText = '';
@@ -33,6 +64,7 @@ export function makeDraft(options) {
     fromTargets: given.fromTargets || [],
     idea: given.idea || null,
     again: Boolean(given.again),
+    copiedFrom: given.copiedFrom || '',
   };
 }
 
@@ -48,7 +80,7 @@ export function startNewDraft(draft, initial) {
   state.dirty = false;
   state.conflict = null;
   state.nearby = null;
-  storage.writePref(ACTIVE_PREF, draft.id);
+  setActiveDraft(draft.id);
 }
 
 // True when the draft holds words or a title the writer added.
@@ -69,6 +101,8 @@ function record(text) {
     fromTargets: draft.fromTargets,
     idea: draft.idea,
     again: draft.again,
+    copiedFrom: draft.copiedFrom,
+    writer: writerId(),
     updated: new Date().toISOString(),
   };
 }
@@ -78,36 +112,75 @@ function record(text) {
 export function persistNewDraft(text) {
   const draft = state.newDraft;
   if (!draft) return true;
-  if (!draftHasContent(text, draft.title, initialText)) {
-    storage.removeNewDraft(draft.id);
-    return true;
+  const ownership = storage.inspectNewDraft(draft.id);
+  if (ownership.status === 'unreadable') return false;
+  let copied = false;
+  if (ownership.status === 'found' && ownership.value.writer !== writerId()) {
+    const sourceId = draft.id;
+    draft.id = freshId('d-copy-');
+    draft.copiedFrom = sourceId;
+    setActiveDraft(draft.id);
+    copied = true;
   }
-  return storage.writeNewDraft(draft.id, record(text)) !== false;
+  if (!draftHasContent(text, draft.title, initialText)) {
+    // Never delete a key which belongs to another document writer. A freshly
+    // copied empty state has no record to remove.
+    const current = storage.inspectNewDraft(draft.id);
+    if (current.status === 'unreadable') return false;
+    if (current.status === 'found' && current.value.writer === writerId()) storage.removeNewDraft(draft.id);
+    return copied ? 'copied' : true;
+  }
+  if (storage.writeNewDraft(draft.id, record(text)) === false) return false;
+  return copied ? 'copied' : true;
 }
 
 // The draft's saved record as an options object for makeDraft, plus its text.
 export function draftFromRecord(saved) {
-  return { draft: makeDraft(saved), text: saved.text };
+  const mine = writerId();
+  if (saved.writer === mine) return { draft: makeDraft(saved), text: saved.text, copied: false, kept: true };
+
+  // A record without an owner is legacy data. Clone it too: two tabs can read
+  // the same legacy record before either writes, so letting either claim its
+  // shared key would preserve the original overwrite race.
+  const id = freshId('d-copy-');
+  const copy = Object.assign({}, saved, {
+    id,
+    writer: mine,
+    copiedFrom: saved.id,
+    updated: new Date().toISOString(),
+  });
+  const kept = storage.writeNewDraft(id, copy) !== false;
+  return { draft: makeDraft(copy), text: saved.text, copied: true, kept };
 }
 
 // Stops tracking the open draft (it was saved, discarded or left behind).
 export function closeNewDraft(options) {
   const draft = state.newDraft;
   if (!draft) return;
-  if (options && options.forget) storage.removeNewDraft(draft.id);
-  if (storage.readPref(ACTIVE_PREF) === draft.id) storage.writePref(ACTIVE_PREF, null);
+  if (options && options.forget) removeOwnedDraft(draft.id);
+  clearActiveDraft(draft.id);
   state.newDraft = null;
   initialText = '';
 }
 
 // Removes a draft's saved copy, wherever the editor has moved on to.
 export function forgetNewDraft(id) {
-  storage.removeNewDraft(id);
-  if (storage.readPref(ACTIVE_PREF) === id) storage.writePref(ACTIVE_PREF, null);
+  removeOwnedDraft(id);
+  clearActiveDraft(id);
+}
+
+function removeOwnedDraft(id) {
+  const found = storage.inspectNewDraft(id);
+  if (found.status === 'found' && found.value.writer === writerId()) storage.removeNewDraft(id);
 }
 
 // The draft the writer was in when the page last closed, if it was kept.
 export function activeDraftId() {
+  const active = storage.readSessionPref(ACTIVE_PREF);
+  if (active && Object.prototype.hasOwnProperty.call(active, 'id')) {
+    const id = active.id;
+    return typeof id === 'string' && storage.readNewDraft(id) ? id : null;
+  }
   const id = storage.readPref(ACTIVE_PREF);
   return typeof id === 'string' && storage.readNewDraft(id) ? id : null;
 }
@@ -128,4 +201,5 @@ export function requestDraftSave() {
 export function resetForTests() {
   initialText = '';
   saver = null;
+  documentWriter = '';
 }

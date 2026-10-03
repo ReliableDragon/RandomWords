@@ -60,12 +60,19 @@ export function prefillText(prefill, links, kept) {
 
 function splitLines(text) {
   const lines = [];
-  let offset = 0;
-  text.split('\n').forEach((line) => {
-    // A CRLF text keeps its \r out of the line, so the header patterns match.
-    lines.push({ text: line.replace(/\r$/, ''), start: offset });
-    offset += line.length + 1;
-  });
+  let start = 0;
+  while (start < text.length) {
+    let end = start;
+    while (end < text.length && text[end] !== '\r' && text[end] !== '\n') end++;
+    let next = end;
+    if (text[next] === '\r' && text[next + 1] === '\n') next += 2;
+    else if (next < text.length) next++;
+    lines.push({ text: text.slice(start, end), start, end, next });
+    start = next;
+  }
+  if (!text.length || (start === text.length && /(?:\r\n|\r|\n)$/.test(text))) {
+    lines.push({ text: '', start, end: start, next: start });
+  }
   return lines;
 }
 
@@ -171,17 +178,19 @@ export function addFromLink(text, link) {
 export function removeFromLink(text, target) {
   const link = fromLinks(text).find((item) => sameTarget(item.target, target));
   if (!link) return text;
-  const lineStart = text.lastIndexOf('\n', link.start - 1) + 1;
-  let lineEnd = text.indexOf('\n', link.end);
-  if (lineEnd < 0) lineEnd = text.length;
-  const line = text.slice(lineStart, lineEnd);
-  const remaining = line.slice(0, link.start - lineStart) + line.slice(link.end - lineStart);
+  const source = splitLines(text).find((line) => link.start >= line.start && link.end <= line.end);
+  if (!source) return text;
+  const line = source.text;
+  const remaining = line.slice(0, link.start - source.start) + line.slice(link.end - source.start);
   if (/^From:\s*$/i.test(remaining.trim())) {
-    const rest = text.slice(Math.min(text.length, lineEnd + 1));
+    let rest = text.slice(source.next);
     // The gap that followed the header goes with it when nothing is above.
-    return text.slice(0, lineStart) + (lineStart === 0 ? rest.replace(/^\n+/, '') : rest);
+    if (source.start === 0) rest = rest.replace(/^(?:\r\n|\r|\n)+/, '');
+    return text.slice(0, source.start) + rest;
   }
-  return text.slice(0, lineStart) + remaining.replace(/\s{2,}/g, ' ').replace(/\s+$/, '') + text.slice(lineEnd);
+  return text.slice(0, source.start)
+    + remaining.replace(/[\t ]{2,}/g, ' ').replace(/[\t ]+$/, '')
+    + text.slice(source.end);
 }
 
 // The names the From: line holds, for showing in the placement bar.

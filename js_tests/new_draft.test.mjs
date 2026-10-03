@@ -76,17 +76,24 @@ async function withPage(table, body) {
   const dom = installFakeDom();
   const calls = installFakeFetch(table);
   const store = new Map();
+  const sessionStore = new Map();
   globalThis.localStorage = {
     getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); },
     removeItem: (k) => { store.delete(k); }, key: (i) => Array.from(store.keys())[i], get length() { return store.size; },
   };
+  globalThis.sessionStorage = {
+    getItem: (k) => (sessionStore.has(k) ? sessionStore.get(k) : null),
+    setItem: (k, v) => { sessionStore.set(k, String(v)); }, removeItem: (k) => { sessionStore.delete(k); },
+    key: (i) => Array.from(sessionStore.keys())[i], get length() { return sessionStore.size; },
+  };
   resetState();
   try {
-    await body({ $: (id) => dom.document.getElementById(id), calls, store });
+    await body({ $: (id) => dom.document.getElementById(id), calls, store, sessionStore });
   } finally {
     uninstallFakeDom();
     delete globalThis.fetch;
     delete globalThis.localStorage;
+    delete globalThis.sessionStorage;
   }
 }
 
@@ -240,13 +247,14 @@ test('reloading mid-draft brings back the text, title and placement', async () =
     state.newDraft.kind = 'Flora and Fauna';
     type($, 'From: [[Marsh]]\n\nMy words.');
     setTitle($, 'Reed');
-    const id = state.newDraft.id;
+    const sourceId = state.newDraft.id;
     // A reload: fresh page state, same browser storage.
     resetState();
     $('entryText').value = '';
     $('entryPane').classList.remove('is-new-draft');
     create.initCreate();
-    assert.equal(state.newDraft.id, id);
+    assert.notEqual(state.newDraft.id, sourceId, 'a fresh document gets a private copy');
+    assert.equal(draftModule.activeDraftId(), state.newDraft.id, 'this tab reloads its own copied id next');
     assert.equal($('entryText').value, 'From: [[Marsh]]\n\nMy words.');
     assert.equal($('draftTitle').value, 'Reed');
     assert.equal(state.newDraft.folder, 'Flora and Fauna');
@@ -254,6 +262,128 @@ test('reloading mid-draft brings back the text, title and placement', async () =
     assert.equal(state.newDraft.template, CREATURE);
     assert.equal(state.current, null);
     assert.equal($('entryPane').hidden, false);
+    assert.match($('saveNotice').textContent, /separate copy/);
+    assert.deepEqual(storage.listNewDrafts().map((item) => item.text).sort(),
+      ['From: [[Marsh]]\n\nMy words.', 'From: [[Marsh]]\n\nMy words.']);
+  });
+});
+
+test('two document writers of one draft keep distinct visible copies through navigation and discard', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: '水辺' });
+    type($, 'first tab: α');
+    const firstId = state.newDraft.id;
+
+    // A duplicated/new document inherits sessionStorage, but its in-memory
+    // writer identity is fresh. Resuming the inherited id must clone first.
+    resetState();
+    assert.equal(editor.resumeNewDraft(firstId), true);
+    const secondId = state.newDraft.id;
+    assert.notEqual(secondId, firstId);
+    assert.match($('saveNotice').textContent, /Both versions are kept/);
+    type($, 'second tab: β');
+    assert.deepEqual(storage.listNewDrafts().map((item) => item.text).sort(), ['first tab: α', 'second tab: β']);
+
+    assert.equal(await editor.openEntry('Overview.md'), true);
+    assert.deepEqual(storage.listNewDrafts().map((item) => item.id).sort(), [firstId, secondId].sort(),
+      'navigation keeps both private copies');
+    assert.equal(editor.resumeNewDraft(secondId), true);
+    editor.discardNewDraft();
+    assert.deepEqual(storage.listNewDrafts().map((item) => item.id), [firstId],
+      'discard removes only this document writer\'s copy');
+    assert.equal(storage.readNewDraft(firstId).text, 'first tab: α');
+  });
+});
+
+test('saving one document writer leaves the other tab copy visible', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'First', folder: '' });
+    type($, 'first tab');
+    const firstId = state.newDraft.id;
+    resetState();
+    create.initCreate();
+    assert.equal(editor.resumeNewDraft(firstId), true);
+    const secondId = state.newDraft.id;
+    state.newDraft.title = 'Second';
+    type($, 'second tab');
+    $('saveBtn').click();
+    await settle(60);
+    assert.equal(storage.readNewDraft(secondId), null);
+    assert.equal(storage.readNewDraft(firstId).text, 'first tab');
+  });
+});
+
+test('ownerless legacy drafts are cloned independently by concurrent document claims', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    storage.writeNewDraft('legacy-shared', {
+      text: '', title: '空 🐚', folder: '', updated: '2026-10-03T09:00:00.000Z',
+    });
+    resetState();
+    assert.equal(editor.resumeNewDraft('legacy-shared'), true);
+    const firstCopy = state.newDraft.id;
+    assert.equal($('entryText').value, '');
+    resetState();
+    assert.equal(editor.resumeNewDraft('legacy-shared'), true);
+    const secondCopy = state.newDraft.id;
+    assert.notEqual(firstCopy, secondCopy);
+    assert.deepEqual(new Set(storage.listNewDrafts().map((item) => item.id)),
+      new Set(['legacy-shared', firstCopy, secondCopy]));
+  });
+});
+
+test('a clone write failure never removes or overwrites the source draft', async () => {
+  await withPage(routes(), async ({ $, store }) => {
+    initDesk();
+    await create.openCreate({ title: 'Source' });
+    type($, 'kept source');
+    const sourceId = state.newDraft.id;
+    resetState();
+    const originalSet = globalThis.localStorage.setItem;
+    globalThis.localStorage.setItem = () => { throw new Error('quota'); };
+    assert.equal(editor.resumeNewDraft(sourceId), true);
+    assert.notEqual(state.newDraft.id, sourceId);
+    assert.match($('saveNotice').textContent, /earlier copy is still kept/);
+    assert.equal(storage.readNewDraft(sourceId).text, 'kept source');
+    editor.discardNewDraft();
+    globalThis.localStorage.setItem = originalSet;
+    assert.equal(storage.readNewDraft(sourceId).text, 'kept source');
+    assert.ok(store.size > 0);
+  });
+});
+
+test('a failed read does not create, overwrite or remove any draft', async () => {
+  await withPage(routes(), async ({ store }) => {
+    initDesk();
+    storage.writeNewDraft('unreadable-now', {
+      text: 'preserve me', title: '', folder: '', writer: 'another-document', updated: '2026-10-03T09:00:00.000Z',
+    });
+    const before = new Map(store);
+    const originalGet = globalThis.localStorage.getItem;
+    globalThis.localStorage.getItem = () => { throw new Error('blocked'); };
+    assert.equal(editor.resumeNewDraft('unreadable-now'), false);
+    globalThis.localStorage.getItem = originalGet;
+    assert.deepEqual(store, before);
+    assert.equal(storage.readNewDraft('unreadable-now').text, 'preserve me');
+  });
+});
+
+test('navigation rechecks ownership and preserves an externally replaced key as a separate draft', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Mine' });
+    type($, 'my current words');
+    const sharedId = state.newDraft.id;
+    storage.writeNewDraft(sharedId, {
+      text: 'other tab words', title: 'Other', folder: '', writer: 'other-live-document',
+      updated: '2026-10-03T09:00:01.000Z',
+    });
+    assert.equal(await editor.openEntry('Overview.md'), true);
+    assert.deepEqual(storage.listNewDrafts().map((item) => item.text).sort(),
+      ['my current words', 'other tab words']);
+    assert.match($('saveNotice').textContent, /separate draft/);
   });
 });
 

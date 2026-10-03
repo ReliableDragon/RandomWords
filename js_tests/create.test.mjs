@@ -140,6 +140,31 @@ test('removing a From link keeps the others, and drops the line when it empties'
   assert.equal(removeFromLink('From: [[A]]\n\nBody', 'A'), 'Body', 'the gap goes with the only header line');
 });
 
+test('removing a From link preserves CRLF and lone-CR bytes and removes the header gap', () => {
+  assert.equal(removeFromLink('From: [[A]] [[B]]\r\n\r\nBody', 'A'), 'From: [[B]]\r\n\r\nBody');
+  assert.equal(removeFromLink('From: [[A]]\r\n\r\nBody', 'A'), 'Body');
+  assert.equal(removeFromLink('From: [[A]] [[B]]\r\rBody', 'A'), 'From: [[B]]\r\rBody');
+  assert.equal(removeFromLink('From: [[A]]\r\rBody', 'A'), 'Body');
+  assert.equal(removeFromLink('From: [[A]]\n\n\nBody', 'A'), 'Body', 'existing LF gap semantics stay intact');
+});
+
+test('removing a From link leaves unrelated bytes, frontmatter and other From lines alone', () => {
+  const absent = 'From:\t[[A]]   [[B]]\r\n\r\nBody  stays';
+  assert.equal(removeFromLink(absent, 'Elsewhere'), absent, 'a miss is a byte-for-byte no-op');
+  assert.equal(
+    removeFromLink('---\r\ntitle: x\r\n---\r\nFrom: [[A]]\r\n\r\nBody', 'A'),
+    '---\r\ntitle: x\r\n---\r\n\r\nBody',
+  );
+  assert.equal(
+    removeFromLink('From: [[A]]\r\nFrom: [[B]]\r\n\r\nBody', 'B'),
+    'From: [[A]]\r\n\r\nBody',
+  );
+  assert.equal(
+    removeFromLink('From: [[Ångström|水辺]] [[B]]\n\nBody', 'Ångström'),
+    'From: [[B]]\n\nBody',
+  );
+});
+
 // -- Templates ---------------------------------------------------------------
 
 const TEMPLATE = '## Description\n\n## Habitat\n';
