@@ -592,16 +592,16 @@ export function leaveNewDraft() {
   const draft = state.newDraft;
   if (!draft) return null;
   const changed = draftHasChanges(getText());
-  if (changed) {
-    const result = persistNewDraft(getText());
-    if (result === false) {
-      warnDraftNotKept();
-      return false;
-    }
-    else if (result === 'copied') {
-      showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
-        + 'Both versions remain available on this device.', true);
-    }
+  // Even an empty state must be persisted: it can represent deletion of a
+  // previously kept draft, and leaving is unsafe until that deletion lands.
+  const result = persistNewDraft(getText());
+  if (result === false) {
+    warnDraftNotKept();
+    return false;
+  }
+  if (result === 'copied') {
+    showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
+      + 'Both versions remain available on this device.', true);
   }
   const kept = changed ? { id: draft.id, title: draft.title.trim() } : null;
   closeNewDraft();

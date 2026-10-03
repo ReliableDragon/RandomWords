@@ -448,6 +448,47 @@ test('discard stays on the draft when its kept copy cannot be removed', async ()
   });
 });
 
+test('clearing a kept draft blocks navigation until its stored copy can be removed', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({});
+    type($, 'words that were kept');
+    const id = state.newDraft.id;
+    const originalRemove = globalThis.localStorage.removeItem;
+    globalThis.localStorage.removeItem = () => { throw new Error('blocked'); };
+    type($, '');
+    assert.equal(state.dirty, false);
+    assert.equal(storage.readNewDraft(id).text, 'words that were kept');
+    assert.equal(await editor.openEntry('Overview.md'), false);
+    assert.equal(state.newDraft.id, id);
+    assert.equal($('entryText').value, '');
+    assert.match($('saveNotice').textContent, /could not keep a copy/);
+
+    globalThis.localStorage.removeItem = originalRemove;
+    assert.equal(await editor.openEntry('Overview.md'), true);
+    assert.equal(storage.readNewDraft(id), null);
+    assert.equal(state.current, 'Overview.md');
+  });
+});
+
+test('clearing an empty local state never deletes a foreign record at the same id', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({});
+    type($, 'mine');
+    const occupiedId = state.newDraft.id;
+    storage.writeNewDraft(occupiedId, {
+      text: 'foreign words', title: 'Foreign', folder: '', writer: 'other-document',
+      updated: '2026-10-03T09:00:00.000Z',
+    });
+    type($, '');
+    assert.notEqual(state.newDraft.id, occupiedId);
+    assert.equal(storage.readNewDraft(occupiedId).text, 'foreign words');
+    assert.equal(await editor.openEntry('Overview.md'), true);
+    assert.equal(storage.readNewDraft(occupiedId).text, 'foreign words');
+  });
+});
+
 test('save completion never deletes edits persisted after its posted snapshot', async () => {
   await withPage(routes(), async ({ $ }) => {
     initDesk();
