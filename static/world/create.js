@@ -31,9 +31,8 @@ import { entryTitle, folderParent } from './text.js';
 import { loadRoot } from './tree.js';
 
 // The latest openCreate call; a slower, earlier one must not replace it. An
-// entry starting to open (ENTRY_OPENING) also outdates any openCreate still
-// waiting for its lookups, so a late draft never replaces the note the writer
-// has since opened.
+// entry open request outdates any openCreate still waiting for its lookups,
+// so a late draft never replaces the note the writer has since requested.
 let openSequence = 0;
 function outdateOpenCreate() { openSequence++; }
 let saving = false;
@@ -164,6 +163,7 @@ async function saveNewDraft() {
   const postedId = draft.id;
   const postedRecord = storage.inspectNewDraft(postedId);
   const postedWriteId = postedRecord.status === 'found' ? postedRecord.value.writeId : undefined;
+  const postedDraft = postedRecord.status === 'found' ? postedRecord.value : null;
   const title = draft.title.trim();
   const payload = { folder: draft.folder, title, body: text, from_targets: [], origin: [], tags: [], template: null };
   if (draft.idea) payload.idea = draft.idea;
@@ -186,7 +186,8 @@ async function saveNewDraft() {
       await startAnother(draft, data, title);
     } else {
       await adoptSavedDraft({
-        path: data.path, revision: data.revision, title, text, draftId: postedId, writeId: postedWriteId,
+        path: data.path, revision: data.revision, title, text, draftId: postedId,
+        writeId: postedWriteId, postedDraft,
       });
     }
     reportIdeaResult(data, draft.idea);
@@ -234,6 +235,7 @@ async function startAnother(draft, data, title) {
 export function initCreate() {
   $('newEntryBtn').addEventListener('click', () => openCreate());
   $('welcomeNew').addEventListener('click', () => openCreate());
+  on(Events.ENTRY_OPEN_REQUESTED, outdateOpenCreate);
   on(Events.ENTRY_OPENING, outdateOpenCreate);
   setDraftSaver(saveNewDraft);
   initPlacement({ discard: discardNewDraft });

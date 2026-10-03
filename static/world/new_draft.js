@@ -59,6 +59,23 @@ function clearActiveDraft(id) {
 // Leaving it as it was does not count as writing anything.
 let initialText = '';
 
+const CONTENT_FIELDS = [
+  'text', 'title', 'folder', 'folderSource', 'kind', 'template', 'insertedTemplate',
+  'fromTargets', 'idea', 'again', 'copiedFrom',
+];
+const METADATA_FIELDS = CONTENT_FIELDS.filter((name) => name !== 'text');
+
+function sameFields(left, right, fields) {
+  return fields.every((name) => JSON.stringify(left && left[name]) === JSON.stringify(right && right[name]));
+}
+
+// Saving a new entry can migrate later text into the resulting existing-entry
+// draft. The new-entry copy is then redundant only when all its other details
+// still match the snapshot that was posted.
+export function sameDraftMetadata(left, right) {
+  return sameFields(left, right, METADATA_FIELDS);
+}
+
 export function makeDraft(options) {
   const given = options || {};
   return {
@@ -144,7 +161,14 @@ export function persistNewDraft(text) {
       && storage.removeNewDraft(draft.id) === false) return false;
     return true;
   }
-  if (storage.writeNewDraft(draft.id, record(text)) === false) return false;
+  const next = record(text);
+  // Keep the persisted identity stable when nothing meaningful changed. Save
+  // completion uses this identity to remove exactly the snapshot it posted.
+  // Legacy records without a write identity must first be upgraded.
+  if (!copied && ownership.status === 'found' && ownership.value.writer === writerId()
+    && typeof ownership.value.writeId === 'string' && ownership.value.writeId
+    && sameFields(ownership.value, next, CONTENT_FIELDS)) return true;
+  if (storage.writeNewDraft(draft.id, next) === false) return false;
   return copied ? 'copied' : true;
 }
 
@@ -160,6 +184,7 @@ export function draftFromRecord(saved) {
   const copy = Object.assign({}, saved, {
     id,
     writer: mine,
+    writeId: freshId('r-'),
     copiedFrom: saved.id,
     updated: new Date().toISOString(),
   });

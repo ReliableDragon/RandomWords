@@ -14,6 +14,7 @@ import { emit, Events, on } from './events.js';
 import { setWorldView, showPane } from './nav.js';
 import {
   closeNewDraft, draftFromRecord, draftHasChanges, forgetNewDraft, persistNewDraft, requestDraftSave, startNewDraft,
+  sameDraftMetadata,
 } from './new_draft.js';
 import { previewLabel, proportionalScroll, skippedText, splitFits } from './preview_layout.js';
 import { revealRange } from './reveal.js';
@@ -489,12 +490,13 @@ function highlightSpan(highlight) {
 export async function openEntry(path, options) {
   if (!confirmLeaveDirty(path)) return false;
   const mine = ++openSequence;
-  resetForOpen();
+  emit(Events.ENTRY_OPEN_REQUESTED, { path });
   try {
     const data = await world.get('/entry', { path });
     if (mine !== openSequence) return false; // a later open won
     const leftDraft = leaveNewDraft();
     if (leftDraft === false) return false;
+    resetForOpen();
     loadText(data, path);
     renderHeading(data);
     renderMetadataSummary(data.entry);
@@ -509,7 +511,10 @@ export async function openEntry(path, options) {
     setDirty();
     watchRevision();
     highlightSpan(options && options.highlight);
-    if (leftDraft && $('saveNotice').hidden) offerBackToDraft(leftDraft);
+    if (leftDraft && leftDraft.copied) {
+      showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
+        + 'Both versions remain available on this device.', true);
+    } else if (leftDraft && $('saveNotice').hidden) offerBackToDraft(leftDraft);
     emit(Events.ENTRY_OPENED, {
       path: state.current, title: $('entryTitle').textContent, entry: data.entry || null, links: data.links || [],
     });
@@ -604,7 +609,7 @@ export function leaveNewDraft() {
     showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
       + 'Both versions remain available on this device.', true);
   }
-  const kept = changed ? { id: draft.id, title: draft.title.trim() } : null;
+  const kept = changed ? { id: draft.id, title: draft.title.trim(), copied: result === 'copied' } : null;
   closeNewDraft();
   $('entryPane').classList.remove('is-new-draft');
   return kept;
@@ -659,20 +664,34 @@ export async function adoptSavedDraft(saved) {
   setDirty();
   const removedPosted = saved.writeId !== undefined && forgetNewDraft(draftId, saved.writeId);
   const retainedId = currentDraftId !== draftId ? currentDraftId : draftId;
-  const retainedDraft = storage.inspectNewDraft(retainedId);
+  let retainedDraft = storage.inspectNewDraft(retainedId);
   let storageNote = '';
   if (state.dirty) {
     const migrated = storage.readDraft(saved.path);
     const migratedOkay = migrated && migrated.text === field.value && migrated.revision === state.revision;
+    const retainedMatchesMigration = retainedDraft.status === 'found' && saved.postedDraft
+      && retainedDraft.value.text === field.value
+      && typeof retainedDraft.value.writeId === 'string' && retainedDraft.value.writeId
+      && sameDraftMetadata(saved.postedDraft, retainedDraft.value);
+    if (migratedOkay && retainedMatchesMigration) {
+      const removedRetained = forgetNewDraft(retainedId, retainedDraft.value.writeId);
+      if (removedRetained) retainedDraft = { status: 'missing' };
+      else storageNote = ' The migrated new-entry copy could not be removed and remains kept on this device.';
+    }
     if (retainedDraft.status === 'found') {
-      storageNote = ' A separate browser draft with later changes also remains kept on this device.';
+      if (!storageNote) storageNote = ' A separate browser draft with later changes also remains kept on this device.';
     } else if (!migratedOkay) {
       storageNote = ' Later changes are still open here, but browser storage could not keep or verify them. Save again soon.';
-    } else if (!removedPosted || currentDraftId !== draftId) {
+    } else if (retainedDraft.status !== 'missing' || (!removedPosted && !retainedMatchesMigration)) {
       storageNote = ' The separate new-entry draft could not be verified or removed and may appear again.';
     }
-  } else if (!removedPosted) {
-    storageNote = ' The saved browser copy could not be removed and may appear again.';
+  } else if (retainedDraft.status === 'found') {
+    const detailsChanged = saved.postedDraft && !sameDraftMetadata(saved.postedDraft, retainedDraft.value);
+    storageNote = detailsChanged
+      ? ' A separate new-entry draft with later details remains kept on this device.'
+      : ' The saved browser copy could not be removed and may appear again.';
+  } else if (!removedPosted || retainedDraft.status !== 'missing') {
+    storageNote = ' The saved browser copy could not be verified or removed and may appear again.';
   }
   watchRevision();
   showNotice('Saved as ' + saved.path + '.' + storageNote, Boolean(storageNote));

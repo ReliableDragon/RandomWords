@@ -217,6 +217,27 @@ test('a start still looking things up gives up when the writer opens a note mean
   });
 });
 
+test('a pending start cannot replace an entry whose fetch is still in flight', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    const search = holdRequests((url) => url.includes('/search'));
+    const entry = holdRequests((url) => url.includes('/entry?') && url.includes('Overview'));
+    const pendingDraft = create.openCreate({ title: 'Late', fromTargets: [MARSH.path] });
+    await settle(5);
+    const pendingEntry = editor.openEntry('Overview.md');
+    await settle(5);
+    assert.equal(search.count, 1);
+    assert.equal(entry.count, 1);
+    search.release();
+    await pendingDraft;
+    assert.equal(state.newDraft, null, 'the older start is cancelled while the entry request is pending');
+    entry.release();
+    assert.equal(await pendingEntry, true);
+    assert.equal(state.current, 'Overview.md');
+    assert.equal($('entryText').value, 'saved');
+  });
+});
+
 // -- Keeping the draft on this device -------------------------------------------
 
 test('words and a title are kept in storage as they are written; an untouched draft is not', async () => {
@@ -334,6 +355,25 @@ test('ownerless legacy drafts are cloned independently by concurrent document cl
   });
 });
 
+test('an unchanged resumed legacy clone has an exact write identity and is cleaned after save', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    storage.writeNewDraft('legacy-save', {
+      text: 'Legacy body', title: 'Legacy Reed', folder: 'Flora and Fauna',
+      updated: '2026-10-03T09:00:00.000Z',
+    });
+    assert.equal(editor.resumeNewDraft('legacy-save'), true);
+    const cloneId = state.newDraft.id;
+    assert.notEqual(cloneId, 'legacy-save');
+    assert.match(storage.readNewDraft(cloneId).writeId, /^r-/);
+    $('saveBtn').click();
+    await settle(80);
+    assert.equal(state.current, 'Flora and Fauna/Legacy Reed.md');
+    assert.equal(storage.readNewDraft(cloneId), null);
+    assert.equal(storage.readNewDraft('legacy-save').text, 'Legacy body', 'the ownerless source remains preserved');
+  });
+});
+
 test('resuming an empty titleless legacy draft does not claim a second kept copy', async () => {
   await withPage(routes(), async ({ $ }) => {
     initDesk();
@@ -424,6 +464,78 @@ test('failed final persistence blocks every transition that would replace the op
     assert.match($('saveNotice').textContent, /could not keep a copy/);
 
     globalThis.localStorage.setItem = originalSet;
+  });
+});
+
+test('blocked navigation keeps its warning, link marks and opening event state intact', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Current' });
+    type($, 'See [[Kept Link]]');
+    marks.setEntryLinks([{ target: 'Kept Link', status: 'unresolved' }], 17);
+    const linkMap = marks.getLinkMap();
+    const opening = [];
+    const off = on(Events.ENTRY_OPENING, () => opening.push(true));
+    const originalSet = globalThis.localStorage.setItem;
+    globalThis.localStorage.setItem = () => { throw new Error('quota'); };
+    type($, 'Latest [[Kept Link]]');
+    assert.equal($('saveNotice').hidden, false);
+
+    assert.equal(await editor.openEntry('Overview.md'), false);
+    off();
+    assert.equal($('saveNotice').hidden, false, 'the storage warning remains visible');
+    assert.match($('saveNotice').textContent, /could not keep a copy/);
+    assert.equal(marks.getLinkMap(), linkMap, 'link state is not cleared');
+    assert.equal(marks.linksGeneration(), '17');
+    assert.deepEqual(opening, [], 'a blocked transition emits no destructive opening event');
+    assert.equal(state.newDraft.title, 'Current');
+    assert.equal($('entryText').value, 'Latest [[Kept Link]]');
+    globalThis.localStorage.setItem = originalSet;
+  });
+});
+
+test('persisting the same draft is a no-op but text, title and placement changes mint new writes', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const first = storage.readNewDraft(id).writeId;
+    type($, 'One.');
+    assert.equal(storage.readNewDraft(id).writeId, first, 'unchanged text keeps the persisted identity');
+    type($, 'One. Two.');
+    const textWrite = storage.readNewDraft(id).writeId;
+    assert.notEqual(textWrite, first);
+    setTitle($, 'Reed revised');
+    const titleWrite = storage.readNewDraft(id).writeId;
+    assert.notEqual(titleWrite, textWrite);
+    state.newDraft.folder = 'Locations';
+    editor.setDirty();
+    const placementWrite = storage.readNewDraft(id).writeId;
+    assert.notEqual(placementWrite, titleWrite);
+    assert.equal(storage.readNewDraft(id).folder, 'Locations');
+    const metadataChanges = [
+      ['folderSource', 'chosen'],
+      ['kind', 'Place'],
+      ['template', 'Templates/Place Template.md'],
+      ['insertedTemplate', '## Description\n'],
+      ['fromTargets', [{ path: MARSH.path, title: MARSH.title }]],
+      ['idea', { path: 'Backlog.md', line: 3 }],
+      ['again', true],
+      ['copiedFrom', 'earlier-draft'],
+    ];
+    let previousWrite = placementWrite;
+    metadataChanges.forEach(([name, value]) => {
+      state.newDraft[name] = value;
+      editor.setDirty();
+      const stored = storage.readNewDraft(id);
+      assert.notEqual(stored.writeId, previousWrite, name + ' changes the persisted identity');
+      assert.deepEqual(stored[name], value);
+      previousWrite = stored.writeId;
+    });
+    editor.setDirty();
+    assert.equal(storage.readNewDraft(id).writeId, previousWrite,
+      'repeating an unchanged metadata state keeps its persisted identity');
   });
 });
 
@@ -521,6 +633,193 @@ test('save completion never deletes edits persisted after its posted snapshot', 
     assert.equal(storage.readNewDraft(id).text, 'One. Two.');
     assert.equal(storage.readNewDraft(id).title, 'Reed revised');
     assert.match($('saveNotice').textContent, /remain kept/);
+  });
+});
+
+test('save then navigation without later edits cleans the exact posted draft', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const postedWrite = storage.readNewDraft(id).writeId;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    assert.equal(await editor.openEntry('Overview.md'), true);
+    const navigationWrite = storage.readNewDraft(id).writeId;
+    held.release();
+    await settle(80);
+    assert.equal(navigationWrite, postedWrite, 'navigation does not invent a later edit');
+    assert.equal(state.current, 'Overview.md');
+    assert.equal(storage.readNewDraft(id), null);
+    assert.doesNotMatch($('saveNotice').textContent, /remain kept|unverified/);
+  });
+});
+
+test('same-editor text-only changes migrate once and remove the newer new-entry copy', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    held.release();
+    await settle(80);
+    assert.equal(state.current, 'Flora and Fauna/Reed.md');
+    assert.equal(storage.readDraft('Flora and Fauna/Reed.md').text, 'One. Two.');
+    assert.equal(storage.readNewDraft(id), null, 'verified text migration removes the exact owned new-entry copy');
+  });
+});
+
+test('same-editor text plus title changes retain the newer new-entry metadata', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    setTitle($, 'Reed revised');
+    held.release();
+    await settle(80);
+    assert.equal(storage.readDraft('Flora and Fauna/Reed.md').text, 'One. Two.');
+    assert.equal(storage.readNewDraft(id).title, 'Reed revised');
+    assert.match($('saveNotice').textContent, /separate browser draft/);
+  });
+});
+
+test('same-editor placement changes remain a new-entry draft after save completion', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    state.newDraft.folder = 'Locations';
+    editor.setDirty();
+    held.release();
+    await settle(80);
+    assert.equal(storage.readNewDraft(id).folder, 'Locations');
+    assert.match($('saveNotice').textContent, /browser copy|new-entry draft/);
+  });
+});
+
+test('successful text migration retains the newer copy when exact removal fails', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    const originalRemove = globalThis.localStorage.removeItem;
+    globalThis.localStorage.removeItem = () => { throw new Error('blocked'); };
+    held.release();
+    await settle(80);
+    assert.equal(storage.readDraft('Flora and Fauna/Reed.md').text, 'One. Two.');
+    assert.equal(storage.readNewDraft(id).text, 'One. Two.');
+    assert.match($('saveNotice').textContent, /remains kept|could not.*removed/i);
+    globalThis.localStorage.removeItem = originalRemove;
+  });
+});
+
+test('successful text migration never removes a foreign replacement record', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    storage.writeNewDraft(id, {
+      text: 'foreign words', title: 'Foreign', folder: '', writer: 'other-document', writeId: 'foreign-write',
+      updated: '2026-10-03T15:00:00.000Z',
+    });
+    held.release();
+    await settle(80);
+    assert.equal(storage.readNewDraft(id).text, 'foreign words');
+    assert.equal(storage.readNewDraft(id).writer, 'other-document');
+    assert.match($('saveNotice').textContent, /separate browser draft|remains kept/);
+  });
+});
+
+test('successful migration keeps an owned record whose durable text differs', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    const replacement = Object.assign({}, storage.readNewDraft(id), {
+      text: 'Different durable words.', writeId: 'replacement-write',
+    });
+    storage.writeNewDraft(id, replacement);
+    held.release();
+    await settle(80);
+    assert.equal(storage.readDraft('Flora and Fauna/Reed.md').text, 'One. Two.');
+    assert.equal(storage.readNewDraft(id).text, 'Different durable words.');
+    assert.equal(storage.readNewDraft(id).writeId, 'replacement-write');
+    assert.match($('saveNotice').textContent, /separate browser draft|remains kept/);
+  });
+});
+
+test('successful migration keeps a tokenless foreign record and reports the retained copy', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    const replacement = Object.assign({}, storage.readNewDraft(id), { writer: 'other-document' });
+    delete replacement.writeId;
+    storage.writeNewDraft(id, replacement);
+    held.release();
+    await settle(80);
+    assert.equal(storage.readDraft('Flora and Fauna/Reed.md').text, 'One. Two.');
+    assert.equal(storage.readNewDraft(id).writer, 'other-document');
+    assert.equal(storage.readNewDraft(id).writeId, undefined);
+    assert.match($('saveNotice').textContent, /separate browser draft|remains kept/);
+  });
+});
+
+test('successful migration leaves an unreadable new-entry record untouched and reports it', async () => {
+  await withPage(routes(), async ({ $, store }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    const stored = Array.from(store.entries()).find(([, value]) => {
+      try { return JSON.parse(value).id === id; } catch (_) { return false; }
+    });
+    assert.ok(stored);
+    store.set(stored[0], '{unreadable');
+    held.release();
+    await settle(80);
+    assert.equal(storage.readDraft('Flora and Fauna/Reed.md').text, 'One. Two.');
+    assert.equal(store.get(stored[0]), '{unreadable');
+    assert.match($('saveNotice').textContent, /could not be verified or removed/);
   });
 });
 

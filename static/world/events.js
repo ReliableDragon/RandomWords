@@ -2,6 +2,9 @@
 // importing each other. Listener errors are logged, not propagated.
 
 export const Events = {
+  // {path}: an entry open was requested. This outdates pending asynchronous
+  // draft creation without clearing the editor before the transition is safe.
+  ENTRY_OPEN_REQUESTED: 'entry:open-requested',
   // The editor is about to load another entry.
   ENTRY_OPENING: 'entry:opening',
   // {path, title, entry, links}: an entry finished opening in the editor.
