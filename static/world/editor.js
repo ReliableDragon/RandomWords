@@ -686,10 +686,28 @@ export async function adoptSavedDraft(saved) {
       storageNote = ' The separate new-entry draft could not be verified or removed and may appear again.';
     }
   } else if (retainedDraft.status === 'found') {
-    const detailsChanged = saved.postedDraft && !sameDraftMetadata(saved.postedDraft, retainedDraft.value);
-    storageNote = detailsChanged
-      ? ' A separate new-entry draft with later details remains kept on this device.'
-      : ' The saved browser copy could not be removed and may appear again.';
+    const retainedWriteId = retainedDraft.value.writeId;
+    const textMatches = textareaText(retainedDraft.value.text) === posted;
+    const metadataMatches = saved.postedDraft
+      && sameDraftMetadata(saved.postedDraft, retainedDraft.value);
+    const retainedMatchesPosted = textMatches && metadataMatches
+      && typeof retainedWriteId === 'string' && retainedWriteId;
+    if (retainedMatchesPosted) {
+      const removedRetained = forgetNewDraft(retainedId, retainedWriteId);
+      if (removedRetained) retainedDraft = { status: 'missing' };
+      else storageNote = ' The matching browser copy could not be removed and remains kept on this device.';
+    }
+    if (retainedDraft.status === 'found' && !storageNote) {
+      if (!textMatches) {
+        storageNote = ' A separate new-entry draft with different content remains kept on this device.';
+      } else if (!saved.postedDraft) {
+        storageNote = ' The saved browser copy could not be verified or removed and remains kept on this device.';
+      } else if (!metadataMatches) {
+        storageNote = ' A separate new-entry draft with later details remains kept on this device.';
+      } else {
+        storageNote = ' The saved browser copy could not be verified or removed and remains kept on this device.';
+      }
+    }
   } else if (!removedPosted || retainedDraft.status !== 'missing') {
     storageNote = ' The saved browser copy could not be verified or removed and may appear again.';
   }

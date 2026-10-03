@@ -130,6 +130,20 @@ function holdRequests(when) {
   };
 }
 
+async function beginRevertedSave($, text, prefill) {
+  await create.openCreate(Object.assign({ title: 'Reed', folder: 'Flora and Fauna' }, prefill));
+  type($, text);
+  const id = state.newDraft.id;
+  const postedWrite = storage.readNewDraft(id).writeId;
+  const held = holdRequests((url) => url.includes('/new'));
+  $('saveBtn').click();
+  await settle(10);
+  type($, text + 'x');
+  type($, text);
+  assert.notEqual(storage.readNewDraft(id).writeId, postedWrite, 'the revert has a newer exact snapshot');
+  return { id, held, postedWrite };
+}
+
 const chips = ($) => findAll($('placementKinds'), (n) => n.tagName === 'button');
 
 // -- Opening ------------------------------------------------------------------
@@ -654,6 +668,179 @@ test('save then navigation without later edits cleans the exact posted draft', a
     assert.equal(state.current, 'Overview.md');
     assert.equal(storage.readNewDraft(id), null);
     assert.doesNotMatch($('saveNotice').textContent, /remain kept|unverified/);
+  });
+});
+
+test('typing then reverting during an in-flight save removes the exact equivalent copy', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const postedWrite = storage.readNewDraft(id).writeId;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One.x');
+    type($, 'One.');
+    assert.notEqual(storage.readNewDraft(id).writeId, postedWrite, 'the revert has a newer exact snapshot');
+    held.release();
+    await settle(80);
+    assert.equal(state.current, 'Flora and Fauna/Reed.md');
+    assert.equal(state.dirty, false);
+    assert.equal(storage.readNewDraft(id), null);
+    assert.doesNotMatch($('saveNotice').textContent, /could not be removed|may appear again/);
+  });
+});
+
+test('net-reverted empty, Unicode and trailing-newline text clean equivalent copies', async () => {
+  for (const text of ['', '雪🙂', '雪🙂\nline', '雪🙂\n']) {
+    await withPage(routes(), async ({ $ }) => {
+      initDesk();
+      const { id, held } = await beginRevertedSave($, text);
+      held.release();
+      await settle(80);
+      assert.equal(state.dirty, false, JSON.stringify(text) + ' is clean after its exact revert');
+      assert.equal(storage.readNewDraft(id), null, JSON.stringify(text) + ' leaves no equivalent copy');
+      assert.doesNotMatch($('saveNotice').textContent, /could not be removed|may appear again/);
+    });
+  }
+});
+
+test('retained CRLF and lone-CR snapshots equal their textarea-normalized posted text', async () => {
+  for (const retainedText of ['雪🙂\r\nline', '雪🙂\rline']) {
+    await withPage(routes(), async ({ $ }) => {
+      initDesk();
+      const { id, held } = await beginRevertedSave($, '雪🙂\nline');
+      storage.writeNewDraft(id, Object.assign({}, storage.readNewDraft(id), { text: retainedText }));
+      held.release();
+      await settle(80);
+      assert.equal(state.dirty, false);
+      assert.equal(storage.readNewDraft(id), null, JSON.stringify(retainedText) + ' is textarea-equivalent');
+      assert.doesNotMatch($('saveNotice').textContent, /could not be removed|may appear again/);
+    });
+  }
+});
+
+test('net-reverted title and placement changes clean their equivalent copies', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const postedWrite = storage.readNewDraft(id).writeId;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    setTitle($, 'Reed revised');
+    setTitle($, 'Reed');
+    state.newDraft.folder = 'Locations';
+    state.newDraft.folderSource = 'chosen';
+    editor.setDirty();
+    state.newDraft.folder = 'Flora and Fauna';
+    state.newDraft.folderSource = 'prefill';
+    editor.setDirty();
+    assert.notEqual(storage.readNewDraft(id).writeId, postedWrite);
+    held.release();
+    await settle(80);
+    assert.equal(state.dirty, false);
+    assert.equal(storage.readNewDraft(id), null);
+    assert.doesNotMatch($('saveNotice').textContent, /could not be removed|may appear again/);
+  });
+});
+
+test('non-dirty adoption preserves different text and later metadata', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    const { id, held } = await beginRevertedSave($, 'One.');
+    storage.writeNewDraft(id, Object.assign({}, storage.readNewDraft(id), { text: 'Different durable text.' }));
+    held.release();
+    await settle(80);
+    assert.equal(state.dirty, false);
+    assert.equal(storage.readNewDraft(id).text, 'Different durable text.');
+    assert.match($('saveNotice').textContent, /different content remains kept/);
+  });
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    const { id, held } = await beginRevertedSave($, 'One.');
+    const retained = Object.assign({}, storage.readNewDraft(id), {
+      title: 'Reed revised', folder: 'Locations', folderSource: 'chosen',
+    });
+    storage.writeNewDraft(id, retained);
+    held.release();
+    await settle(80);
+    assert.equal(state.dirty, false);
+    assert.equal(storage.readNewDraft(id).title, 'Reed revised');
+    assert.equal(storage.readNewDraft(id).folder, 'Locations');
+    assert.match($('saveNotice').textContent, /later details remains kept/);
+  });
+});
+
+test('non-dirty adoption preserves foreign, tokenless and unreadable equivalent records', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    const { id, held } = await beginRevertedSave($, 'One.');
+    storage.writeNewDraft(id, Object.assign({}, storage.readNewDraft(id), {
+      writer: 'other-document', writeId: 'foreign-write',
+    }));
+    held.release();
+    await settle(80);
+    assert.equal(storage.readNewDraft(id).writer, 'other-document');
+    assert.match($('saveNotice').textContent, /could not be removed and remains kept/);
+  });
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    const { id, held } = await beginRevertedSave($, 'One.');
+    const tokenless = Object.assign({}, storage.readNewDraft(id));
+    delete tokenless.writeId;
+    storage.writeNewDraft(id, tokenless);
+    held.release();
+    await settle(80);
+    assert.equal(storage.readNewDraft(id).writeId, undefined);
+    assert.match($('saveNotice').textContent, /could not be verified or removed/);
+  });
+  await withPage(routes(), async ({ $, store }) => {
+    initDesk();
+    const { id, held } = await beginRevertedSave($, 'One.');
+    const stored = Array.from(store.entries()).find(([, value]) => {
+      try { return JSON.parse(value).id === id; } catch (_) { return false; }
+    });
+    assert.ok(stored);
+    store.set(stored[0], '{unreadable');
+    held.release();
+    await settle(80);
+    assert.equal(store.get(stored[0]), '{unreadable');
+    assert.match($('saveNotice').textContent, /could not be verified or removed/);
+  });
+});
+
+test('non-dirty exact cleanup preserves a matching record when removal fails', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    const { id, held } = await beginRevertedSave($, 'One.');
+    const originalRemove = globalThis.localStorage.removeItem;
+    globalThis.localStorage.removeItem = () => { throw new Error('blocked'); };
+    held.release();
+    await settle(80);
+    assert.equal(storage.readNewDraft(id).text, 'One.');
+    assert.match($('saveNotice').textContent, /could not be removed and remains kept/);
+    globalThis.localStorage.removeItem = originalRemove;
+  });
+});
+
+test('non-dirty adoption retains a current record when the posted snapshot is unavailable', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const current = storage.readNewDraft(id);
+    assert.equal(await editor.adoptSavedDraft({
+      path: 'Flora and Fauna/Reed.md', revision: 'rn', title: 'Reed', text: 'One.',
+      draftId: id, writeId: 'unverified-posted-token', postedDraft: null,
+    }), true);
+    assert.equal(storage.readNewDraft(id).writeId, current.writeId);
+    assert.match($('saveNotice').textContent, /could not be verified or removed/);
   });
 });
 
