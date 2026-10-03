@@ -13,7 +13,7 @@ import { adjustCaret, diffSpan } from './draft_text.js';
 import { emit, Events, on } from './events.js';
 import { setWorldView, showPane } from './nav.js';
 import {
-  closeNewDraft, draftFromRecord, draftHasChanges, persistNewDraft, requestDraftSave, startNewDraft,
+  closeNewDraft, draftFromRecord, draftHasChanges, forgetNewDraft, persistNewDraft, requestDraftSave, startNewDraft,
 } from './new_draft.js';
 import { previewLabel, proportionalScroll, skippedText, splitFits } from './preview_layout.js';
 import { revealRange } from './reveal.js';
@@ -494,6 +494,7 @@ export async function openEntry(path, options) {
     const data = await world.get('/entry', { path });
     if (mine !== openSequence) return false; // a later open won
     const leftDraft = leaveNewDraft();
+    if (leftDraft === false) return false;
     loadText(data, path);
     renderHeading(data);
     renderMetadataSummary(data.entry);
@@ -562,7 +563,14 @@ export function showNewDraft(text) {
 
 // Reopens a draft kept on this device. False when it is gone.
 export function resumeNewDraft(id) {
-  const saved = storage.readNewDraft(id);
+  if (!storage.readNewDraft(id)) return false;
+  const wasCurrent = Boolean(state.newDraft && state.newDraft.id === id);
+  const left = leaveNewDraft();
+  if (left === false) return false;
+  // Leaving can persist the currently open target again (or fork it after an
+  // ownership change), so never reopen the stale snapshot read above.
+  const resumeId = wasCurrent && left ? left.id : id;
+  const saved = storage.readNewDraft(resumeId);
   if (!saved) return false;
   const { draft, text, copied, kept } = draftFromRecord(saved);
   startNewDraft(draft, '');
@@ -580,13 +588,16 @@ export function resumeNewDraft(id) {
 
 // Stops showing the open draft because something else is opening. The draft
 // stays in browser storage when it holds anything; returns {id, title} then.
-function leaveNewDraft() {
+export function leaveNewDraft() {
   const draft = state.newDraft;
   if (!draft) return null;
   const changed = draftHasChanges(getText());
   if (changed) {
     const result = persistNewDraft(getText());
-    if (result === false) warnDraftNotKept();
+    if (result === false) {
+      warnDraftNotKept();
+      return false;
+    }
     else if (result === 'copied') {
       showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
         + 'Both versions remain available on this device.', true);
@@ -607,7 +618,10 @@ function offerBackToDraft(kept) {
 // Throws the open draft away (the caller has already confirmed).
 export function discardNewDraft() {
   if (!state.newDraft) return;
-  closeNewDraft({ forget: true });
+  if (closeNewDraft({ forget: true }) === false) {
+    showNotice('This browser could not remove its kept copy of the draft. The draft is still open; try again.', true);
+    return;
+  }
   emit(Events.ENTRY_OPENING);
   $('entryPane').classList.remove('is-new-draft');
   textarea().value = '';
@@ -621,6 +635,8 @@ export function discardNewDraft() {
 // is what was written (anything typed since keeps the entry unsaved).
 export async function adoptSavedDraft(saved) {
   if (!state.newDraft) return false;
+  const draftId = saved.draftId || state.newDraft.id;
+  const currentDraftId = state.newDraft.id;
   // /new ends a nonempty file with a newline; mirror it so the editor's idea
   // of the saved text matches the disk and the next save does not drop it.
   const posted = textareaText(saved.text);
@@ -631,7 +647,7 @@ export async function adoptSavedDraft(saved) {
     field.value = text;
     field.setSelectionRange(selectionStart, selectionEnd);
   }
-  closeNewDraft({ forget: true });
+  closeNewDraft();
   state.current = saved.path;
   state.revision = saved.revision;
   state.lineEnding = '\n';
@@ -640,8 +656,25 @@ export async function adoptSavedDraft(saved) {
   $('entryPane').classList.remove('is-new-draft');
   renderHeading({ entry: { title: saved.title } });
   setDirty();
+  const removedPosted = saved.writeId !== undefined && forgetNewDraft(draftId, saved.writeId);
+  const retainedId = currentDraftId !== draftId ? currentDraftId : draftId;
+  const retainedDraft = storage.inspectNewDraft(retainedId);
+  let storageNote = '';
+  if (state.dirty) {
+    const migrated = storage.readDraft(saved.path);
+    const migratedOkay = migrated && migrated.text === field.value && migrated.revision === state.revision;
+    if (retainedDraft.status === 'found') {
+      storageNote = ' A separate browser draft with later changes also remains kept on this device.';
+    } else if (!migratedOkay) {
+      storageNote = ' Later changes are still open here, but browser storage could not keep or verify them. Save again soon.';
+    } else if (!removedPosted || currentDraftId !== draftId) {
+      storageNote = ' The separate new-entry draft could not be verified or removed and may appear again.';
+    }
+  } else if (!removedPosted) {
+    storageNote = ' The saved browser copy could not be removed and may appear again.';
+  }
   watchRevision();
-  showNotice('Saved as ' + saved.path + '.');
+  showNotice('Saved as ' + saved.path + '.' + storageNote, Boolean(storageNote));
   let data = null;
   try {
     data = await world.get('/entry', { path: saved.path });

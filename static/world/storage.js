@@ -54,7 +54,9 @@ export function createStorage(options) {
     && worldScope === DEFAULT_CONFIG.worldScope;
 
   const get = (key) => { try { return backend.getItem(key); } catch (_) { return null; } };
-  const remove = (key) => { try { backend.removeItem(key); } catch (_) { /* ignore */ } };
+  const remove = (key) => {
+    try { backend.removeItem(key); return true; } catch (_) { return false; }
+  };
   const set = (key, value) => {
     try { backend.setItem(key, value); return true; } catch (_) { return false; }
   };
@@ -89,8 +91,9 @@ export function createStorage(options) {
   }
 
   function removeRaw(kind, id, legacyKey) {
-    remove(key(kind, id));
-    if (legacyAllowed && legacyKey) remove(legacyKey);
+    const current = remove(key(kind, id));
+    const legacy = !legacyAllowed || !legacyKey || remove(legacyKey);
+    return current && legacy;
   }
 
   function parse(raw) {
@@ -138,7 +141,7 @@ export function createStorage(options) {
   }
 
   function removeNewDraft(id) {
-    removeRaw('newdraft', id, null);
+    return removeRaw('newdraft', id, null);
   }
 
   // Newest first. Anything unreadable is skipped, never thrown on.

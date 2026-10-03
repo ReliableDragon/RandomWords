@@ -387,6 +387,131 @@ test('navigation rechecks ownership and preserves an externally replaced key as 
   });
 });
 
+test('failed final persistence blocks every transition that would replace the open draft', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Current' });
+    type($, 'last kept words');
+    const currentId = state.newDraft.id;
+    storage.writeNewDraft('other-draft', {
+      text: 'other words', title: 'Other', folder: '', writer: 'other-document',
+      updated: '2026-10-03T09:00:00.000Z',
+    });
+    const originalSet = globalThis.localStorage.setItem;
+    globalThis.localStorage.setItem = () => { throw new Error('quota'); };
+    type($, 'latest words only in the textarea');
+
+    assert.equal(await editor.openEntry('Overview.md'), false);
+    assert.equal(state.newDraft.id, currentId);
+    assert.equal($('entryText').value, 'latest words only in the textarea');
+    assert.equal(await create.openCreate({ title: 'Replacement' }), false);
+    assert.equal(state.newDraft.id, currentId);
+    assert.equal(editor.resumeNewDraft('other-draft'), false);
+    assert.equal(state.newDraft.id, currentId);
+    assert.match($('saveNotice').textContent, /could not keep a copy/);
+
+    globalThis.localStorage.setItem = originalSet;
+  });
+});
+
+test('resuming the current id reopens the final text persisted by the transition guard', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Current' });
+    type($, 'earlier text');
+    const id = state.newDraft.id;
+    $('entryText').value = 'latest text before resume';
+    assert.equal(editor.resumeNewDraft(id), true);
+    assert.equal(state.newDraft.id, id);
+    assert.equal($('entryText').value, 'latest text before resume');
+    assert.equal(storage.readNewDraft(id).text, 'latest text before resume');
+  });
+});
+
+test('discard stays on the draft when its kept copy cannot be removed', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Keep until removed' });
+    type($, 'words');
+    const id = state.newDraft.id;
+    const originalRemove = globalThis.localStorage.removeItem;
+    globalThis.localStorage.removeItem = () => { throw new Error('blocked'); };
+    editor.discardNewDraft();
+    assert.equal(state.newDraft.id, id);
+    assert.equal($('entryText').value, 'words');
+    assert.match($('saveNotice').textContent, /could not remove/);
+    assert.equal(storage.readNewDraft(id).text, 'words');
+    globalThis.localStorage.removeItem = originalRemove;
+    editor.discardNewDraft();
+    assert.equal(state.newDraft, null);
+    assert.equal(storage.readNewDraft(id), null);
+  });
+});
+
+test('save completion never deletes edits persisted after its posted snapshot', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    setTitle($, 'Reed revised');
+    assert.equal(await editor.openEntry('Overview.md'), true);
+    held.release();
+    await settle(80);
+    assert.equal(state.current, 'Overview.md');
+    assert.equal(storage.readNewDraft(id).text, 'One. Two.');
+    assert.equal(storage.readNewDraft(id).title, 'Reed revised');
+    assert.match($('saveNotice').textContent, /remain kept/);
+  });
+});
+
+test('failed migration after an in-flight save retains the newer new-entry draft', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'Reed', folder: 'Flora and Fauna' });
+    type($, 'One.');
+    const id = state.newDraft.id;
+    const held = holdRequests((url) => url.includes('/new'));
+    $('saveBtn').click();
+    await settle(10);
+    type($, 'One. Two.');
+    const originalSet = globalThis.localStorage.setItem;
+    globalThis.localStorage.setItem = () => { throw new Error('quota'); };
+    held.release();
+    await settle(80);
+    assert.equal(state.current, 'Flora and Fauna/Reed.md');
+    assert.equal($('entryText').value, 'One. Two.');
+    assert.equal(storage.readNewDraft(id).text, 'One. Two.');
+    assert.match($('saveNotice').textContent, /separate browser draft/);
+    globalThis.localStorage.setItem = originalSet;
+  });
+});
+
+test('a failed session pointer write uses its matching local fallback instead of a stale session id', async () => {
+  await withPage(routes(), async ({ $ }) => {
+    initDesk();
+    await create.openCreate({ title: 'First' });
+    type($, 'first');
+    const firstId = state.newDraft.id;
+    const originalSessionSet = globalThis.sessionStorage.setItem;
+    globalThis.sessionStorage.setItem = () => { throw new Error('session blocked'); };
+    await create.openCreate({ title: 'Second' });
+    type($, 'second');
+    const secondId = state.newDraft.id;
+    assert.notEqual(secondId, firstId);
+    assert.equal(draftModule.activeDraftId(), secondId);
+    globalThis.sessionStorage.setItem = originalSessionSet;
+    resetState();
+    assert.equal(draftModule.activeDraftId(), secondId);
+    assert.equal(storage.readNewDraft(firstId).text, 'first');
+    assert.equal(storage.readNewDraft(secondId).text, 'second');
+  });
+});
+
 test('a draft that was saved or discarded does not come back on reload', async () => {
   await withPage(routes(), async ({ $ }) => {
     initDesk();

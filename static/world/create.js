@@ -13,18 +13,20 @@ import { $, button } from './dom.js';
 import { linkFor } from './autocomplete.js';
 import { appendTemplate, draftIssues, placeTemplate, prefillText } from './draft_text.js';
 import {
-  addNoticeAction, adoptSavedDraft, discardNewDraft, getText, openEntry, resumeNewDraft, showNewDraft, showNotice,
+  addNoticeAction, adoptSavedDraft, discardNewDraft, getText, leaveNewDraft, openEntry, resumeNewDraft, showNewDraft,
+  showNotice,
 } from './editor.js';
 import { emit, Events, on } from './events.js';
 import { offerIdeaRetry } from './idea.js';
 import { invalidateView } from './nav.js';
 import {
-  activeDraftId, forgetNewDraft, makeDraft, persistNewDraft, setDraftSaver, startNewDraft,
+  activeDraftId, closeNewDraft, forgetNewDraft, makeDraft, persistNewDraft, setDraftSaver, startNewDraft,
 } from './new_draft.js';
 import {
   clearPlacementIssue, initPlacement, noteFolderUsed, openPlacementPanel, showMissing, showSaveProblem,
 } from './placement.js';
 import { state } from './state.js';
+import { storage } from './storage.js';
 import { entryTitle, folderParent } from './text.js';
 import { loadRoot } from './tree.js';
 
@@ -100,6 +102,7 @@ export async function openCreate(prefill) {
     folderIsThere(options.folder),
   ]);
   if (mine !== openSequence) return; // a later start won
+  if (state.newDraft && leaveNewDraft() === false) return false;
   let text = prefillText(options, from.map((item) => item.link), state.kept);
   const draft = makeDraft({
     title: options.title,
@@ -122,6 +125,7 @@ export async function openCreate(prefill) {
       message: 'The folder "' + options.folder + '" is not in this vault. Choose another folder.',
     });
   }
+  return true;
 }
 
 // -- Saving ----------------------------------------------------------------
@@ -157,6 +161,9 @@ async function saveNewDraft() {
     showNotice('Kept this tab\'s changes as a separate draft because the earlier browser draft changed elsewhere. '
       + 'Both versions remain available on this device.', true);
   }
+  const postedId = draft.id;
+  const postedRecord = storage.inspectNewDraft(postedId);
+  const postedWriteId = postedRecord.status === 'found' ? postedRecord.value.writeId : undefined;
   const title = draft.title.trim();
   const payload = { folder: draft.folder, title, body: text, from_targets: [], origin: [], tags: [], template: null };
   if (draft.idea) payload.idea = draft.idea;
@@ -164,18 +171,23 @@ async function saveNewDraft() {
   saving = true;
   try {
     const data = await world.post('/new', payload);
-    forgetNewDraft(draft.id);
     emit(Events.VAULT_CHANGED, { generation: data.generation, path: data.path });
     await loadRoot();
     noteFolderUsed(payload.folder);
     if (draft.idea) invalidateView('backlog');
     if (state.newDraft !== draft) {
       // The writer opened something else while this saved.
-      showNotice('Saved as ' + data.path + '.');
+      const removed = postedWriteId !== undefined && forgetNewDraft(postedId, postedWriteId);
+      showNotice('Saved as ' + data.path + '.' + (removed ? ''
+        : ' Later or unverified browser-draft changes remain kept on this device.'));
     } else if (draft.again) {
+      const removed = postedWriteId !== undefined && forgetNewDraft(postedId, postedWriteId);
+      if (removed) closeSavedDraft();
       await startAnother(draft, data, title);
     } else {
-      await adoptSavedDraft({ path: data.path, revision: data.revision, title, text });
+      await adoptSavedDraft({
+        path: data.path, revision: data.revision, title, text, draftId: postedId, writeId: postedWriteId,
+      });
     }
     reportIdeaResult(data, draft.idea);
     return true;
@@ -185,6 +197,13 @@ async function saveNewDraft() {
   } finally {
     saving = false;
   }
+}
+
+function closeSavedDraft() {
+  // The matching persisted snapshot was removed above; closing without a
+  // second delete prevents the saved draft from being recreated by the
+  // transition guard before "Create another" opens its fresh draft.
+  if (state.newDraft) closeNewDraft();
 }
 
 function reportSaveError(error, title, folder) {
@@ -200,9 +219,14 @@ function reportSaveError(error, title, folder) {
 // "Create another like this": after saving, a fresh draft with the same
 // place, folder and template.
 async function startAnother(draft, data, title) {
-  await openCreate({
+  const opened = await openCreate({
     folder: draft.folder, kind: draft.kind, template: draft.template, fromTargets: draft.fromTargets,
   });
+  if (opened === false) {
+    showNotice('Saved "' + title + '" as ' + data.path
+      + '. The current draft remains open because this browser could not keep a replacement safely.', true);
+    return;
+  }
   showNotice('Saved "' + title + '" as ' + data.path + '. This new draft has the same place, folder and template.');
   addNoticeAction(button('Open the saved entry', 'btn btn-small btn-quiet', () => openEntry(data.path)));
 }

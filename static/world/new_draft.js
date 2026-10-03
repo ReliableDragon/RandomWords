@@ -31,16 +31,28 @@ function writerId() {
   return documentWriter;
 }
 
+function activeId(value) {
+  if (typeof value === 'string') return value;
+  return value && Object.prototype.hasOwnProperty.call(value, 'id') ? value.id : undefined;
+}
+
 function setActiveDraft(id) {
-  // An object distinguishes an intentional "none" from unavailable session
-  // storage, where the old local preference remains the compatibility path.
-  if (storage.writeSessionPref(ACTIVE_PREF, { id }) === false) storage.writePref(ACTIVE_PREF, id);
+  const previous = storage.readSessionPref(ACTIVE_PREF);
+  const marker = { id, replaces: activeId(previous) };
+  // `replaces` lets this same session recognize a fallback after a transient
+  // sessionStorage write failure without trusting an unrelated tab's pointer.
+  if (storage.writeSessionPref(ACTIVE_PREF, marker) === false) storage.writePref(ACTIVE_PREF, marker);
 }
 
 function clearActiveDraft(id) {
   const active = storage.readSessionPref(ACTIVE_PREF);
-  if (active && active.id === id) storage.writeSessionPref(ACTIVE_PREF, { id: null });
-  if (storage.readPref(ACTIVE_PREF) === id) storage.writePref(ACTIVE_PREF, null);
+  const fallback = storage.readPref(ACTIVE_PREF);
+  if (activeId(active) === id || activeId(fallback) === id) {
+    const marker = { id: null, replaces: id };
+    const sessionKept = storage.writeSessionPref(ACTIVE_PREF, marker);
+    if (sessionKept === false) storage.writePref(ACTIVE_PREF, marker);
+    else if (fallback === id) storage.writePref(ACTIVE_PREF, null);
+  }
 }
 
 // What the text looked like when the draft opened (the prefilled headers).
@@ -103,6 +115,7 @@ function record(text) {
     again: draft.again,
     copiedFrom: draft.copiedFrom,
     writer: writerId(),
+    writeId: freshId('r-'),
     updated: new Date().toISOString(),
   };
 }
@@ -156,32 +169,39 @@ export function draftFromRecord(saved) {
 // Stops tracking the open draft (it was saved, discarded or left behind).
 export function closeNewDraft(options) {
   const draft = state.newDraft;
-  if (!draft) return;
-  if (options && options.forget) removeOwnedDraft(draft.id);
+  if (!draft) return true;
+  if (options && options.forget && !removeOwnedDraft(draft.id)) return false;
   clearActiveDraft(draft.id);
   state.newDraft = null;
   initialText = '';
+  return true;
 }
 
 // Removes a draft's saved copy, wherever the editor has moved on to.
-export function forgetNewDraft(id) {
-  removeOwnedDraft(id);
-  clearActiveDraft(id);
+export function forgetNewDraft(id, expectedWriteId) {
+  const removed = removeOwnedDraft(id, expectedWriteId);
+  if (removed) clearActiveDraft(id);
+  return removed;
 }
 
-function removeOwnedDraft(id) {
+function removeOwnedDraft(id, expectedWriteId) {
   const found = storage.inspectNewDraft(id);
-  if (found.status === 'found' && found.value.writer === writerId()) storage.removeNewDraft(id);
+  if (found.status === 'missing') return true;
+  if (found.status !== 'found') return false;
+  if (found.value.writer !== writerId()) return expectedWriteId === undefined;
+  if (expectedWriteId !== undefined && found.value.writeId !== expectedWriteId) return false;
+  return storage.removeNewDraft(id) !== false;
 }
 
 // The draft the writer was in when the page last closed, if it was kept.
 export function activeDraftId() {
   const active = storage.readSessionPref(ACTIVE_PREF);
-  if (active && Object.prototype.hasOwnProperty.call(active, 'id')) {
-    const id = active.id;
-    return typeof id === 'string' && storage.readNewDraft(id) ? id : null;
+  const fallback = storage.readPref(ACTIVE_PREF);
+  let id = activeId(active);
+  if (fallback && typeof fallback === 'object' && Object.prototype.hasOwnProperty.call(fallback, 'id')) {
+    if (id === undefined || fallback.replaces === id) id = fallback.id;
   }
-  const id = storage.readPref(ACTIVE_PREF);
+  if (id === undefined) id = activeId(fallback);
   return typeof id === 'string' && storage.readNewDraft(id) ? id : null;
 }
 
