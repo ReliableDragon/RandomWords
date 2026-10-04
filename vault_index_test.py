@@ -3,6 +3,7 @@ import inspect
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import vault_index
 from vault import VaultManager
@@ -60,17 +61,22 @@ class VaultIndexTest(unittest.TestCase):
         self.assertEqual(index.memberships["People/Loaming Country/Not Taxonomy.md"], ())
 
     def test_tree_search_and_throttled_rebuild(self):
-        self.note("A/Alpha.md", "A peculiar river")
-        index = VaultIndex(self.vault, stat_interval=60)
-        index.ensure_ready()
-        self.assertEqual(index.tree()[0], {"path": "A", "name": "A", "type": "folder"})
-        self.assertEqual(index.search("river")[0]["path"], "A/Alpha.md")
-        self.note("B.md", "new")
-        index.ensure_ready()
-        self.assertNotIn("B.md", index.entries)
-        index._last_stat = 0
-        index.ensure_ready()
-        self.assertIn("B.md", index.entries)
+        clock = [10.0]
+        with patch.object(vault_index.time, "monotonic", side_effect=lambda: clock[0]):
+            self.note("A/Alpha.md", "A peculiar river")
+            index = VaultIndex(self.vault, stat_interval=60)
+            index.ensure_ready()
+            self.assertEqual(index.tree()[0], {"path": "A", "name": "A", "type": "folder"})
+            self.assertEqual(index.search("river")[0]["path"], "A/Alpha.md")
+            self.note("B.md", "new")
+            index.ensure_ready()
+            self.assertNotIn("B.md", index.entries)
+            clock[0] = 69.999
+            index.ensure_ready()
+            self.assertNotIn("B.md", index.entries)
+            clock[0] = 70.0
+            index.ensure_ready()
+            self.assertIn("B.md", index.entries)
 
     def test_bm25_is_body_only_positive_and_deterministic(self):
         self.note("A.md", "Origin: moonstone\n\nriver glass river")
