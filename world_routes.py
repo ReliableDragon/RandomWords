@@ -5,10 +5,11 @@ from dataclasses import asdict, is_dataclass
 import os
 import json
 import re
+import hashlib
 from urllib.parse import quote
 
 from entry import parse, render
-from vault import (DestinationConflict, InvalidPath, RevisionConflict,
+from vault import (DestinationConflict, FolderConflict, InvalidPath, RevisionConflict,
                    UnreadableSource)
 from web_routes import Response
 
@@ -144,6 +145,14 @@ def _get_path(req):
     return path
 
 
+def status(req):
+    """Cheap change detector: the generation of the current index snapshot."""
+    if req.world_index is None:
+        return _fail(404, "World vault is not enabled.")
+    _ensure_index(req)
+    return _ok("World status loaded.", {"generation": _generation(req)})
+
+
 def tree(req):
     _ensure_index(req)
     path = _get_path(req)
@@ -161,7 +170,9 @@ def tree(req):
             item = parse(text, child)
             rows.append({"path": child, "name": name, "is_dir": False,
                          "words": item.words, "stub": item.stub})
-    return _ok("Vault entries loaded.", {"path": path, "entries": rows})
+    vault_id = hashlib.sha256(req.vault.root.encode("utf-8")).hexdigest()[:16]
+    return _ok("Vault entries loaded.", {"path": path, "entries": rows,
+                                        "vault_id": vault_id})
 
 
 def get_entry(req):
@@ -176,9 +187,11 @@ def get_entry(req):
     if any(path.startswith(folder + "/") for folder in folders):
         from world_story import parse_scene
         story_diagnostics = parse_scene(text)["diagnostics"]
+    skipped = []
     html = render(item, lambda target: _resolve(req, target, path),
                   base_entries=_index_entries(req.world_index),
-                  base_resolve=lambda target, source: _resolution(req, target, source))
+                  base_resolve=lambda target, source: _resolution(req, target, source),
+                  skipped=skipped)
     links = []
     for link in item.links:
         row = asdict(link)
@@ -197,6 +210,8 @@ def get_entry(req):
         "entry": _entry_dict(item), "html": html, "links": links,
         "diagnostics": story_diagnostics,
         "backlinks": _backlinks(req, path),
+        "skipped": skipped,
+        "generation": _generation(req),
     })
 
 
@@ -220,12 +235,73 @@ def _search_index(index, query):
     return None
 
 
+SNIPPET_CHARS = 120
+
+
+def _snippet(body, query):
+    """About SNIPPET_CHARS of plain text around the first match, or None.
+
+    Returns {"snippet", "snippet_match": [start, end]}; the offsets point at
+    the match inside the snippet so the client can emphasize it.
+    """
+    found = re.search(re.escape(query), body, re.IGNORECASE)
+    if not found:
+        return None
+    room = max(0, SNIPPET_CHARS - len(found.group(0)))
+    # Collapse whitespace on each side separately so the match offsets stay exact.
+    before = " ".join(body[max(0, found.start() - room * 2):found.start()].split())
+    after = " ".join(body[found.end():found.end() + room * 2].split())
+    if body[found.start() - 1:found.start()].isspace():
+        before += " "
+    if body[found.end():found.end() + 1].isspace():
+        after = " " + after
+    lead = trail = ""
+    if len(before) > room // 2:
+        before = before[-(room // 2):]
+        before = before.split(" ", 1)[1] if " " in before[:-1] else before
+        lead = "…"
+    elif found.start() > len(before) + room:
+        lead = "…"
+    if len(after) > room - len(before):
+        after = after[:room - len(before)].rsplit(" ", 1)[0]
+        trail = "…"
+    start = len(lead) + len(before)
+    text = lead + before + found.group(0) + after + trail
+    return {"snippet": text, "snippet_match": [start, start + len(found.group(0))]}
+
+
+def _annotate_search(index, results, query):
+    """Adds `match` (title, alias or text), `matched_alias` and `snippet`."""
+    entries = getattr(index, "entries", None) if index is not None else None
+    needle = query.strip().casefold()
+    if not needle or not isinstance(entries, dict):
+        return results
+    for row in results:
+        entry = entries.get(row.get("path"))
+        if entry is None or "match" in row:
+            continue
+        if needle in entry.title.casefold():
+            row["match"] = "title"
+            continue
+        alias = next((a for a in entry.aliases if needle in a.casefold()), None)
+        if alias is not None:
+            row["match"], row["matched_alias"] = "alias", alias
+            continue
+        row["match"] = "text"
+        snippet = _snippet(entry.body or "", query.strip())
+        if snippet:
+            row.update(snippet)
+    return results
+
+
 def search(req):
     query = req.query.get("q", "")
     if not isinstance(query, str):
         return _fail(400, "Search query must be text.")
     query = query.strip()
     results = _search_index(req.world_index, query)
+    if results is not None:
+        results = _annotate_search(req.world_index, results, query)
     if results is None:
         results = []
         needle = query.casefold()
@@ -290,6 +366,8 @@ def graph(req):
     if around and around not in entries:
         return _fail(400, "Around must be a canonical vault path.")
 
+    from world_reports import is_world_entry
+    story = tuple(getattr(index, "story_folders", ()) or ())
     colors = _graph_colors(req.vault) if req.vault is not None else []
     memberships = getattr(index, "memberships", {})
     nodes = {}
@@ -301,7 +379,7 @@ def graph(req):
         nodes[path] = {
             "id": path, "path": path, "title": entry.title, "label": entry.title,
             "kind": entry.kind, "folder": entry.folder, "state": "entry",
-            "stub": entry.stub,
+            "world": is_world_entry(path, entry, story), "stub": entry.stub,
             "rework": "rework" in {tag.casefold() for tag in entry.tags},
             "inbound": len(getattr(index, "backlinks", {}).get(path, ())),
             "biomes": [{"path": row.path, "via": row.via}
@@ -326,7 +404,7 @@ def graph(req):
                 nodes.setdefault(target_id, {
                     "id": target_id, "path": None, "title": target_text,
                     "label": target_text, "kind": None, "folder": None,
-                    "state": status, "stub": False, "rework": False,
+                    "state": status, "world": None, "stub": False, "rework": False,
                     "inbound": 0, "biomes": [], "color": None,
                     "color_rgb": None,
                     "candidates": candidates if status == "ambiguous" else [],
@@ -359,6 +437,7 @@ def graph(req):
     return _ok("World graph loaded.", {
         "around": around or None, "depth": depth if around else None,
         "nodes": list(nodes.values()), "edges": edges,
+        "generation": _generation(req),
     })
 
 
@@ -420,6 +499,13 @@ def save_entry(req):
         return _fail(409, str(error), {"text": error.current_text, "revision": error.current_revision})
     if "recovery_path" in result:
         result["recovery"] = result["recovery_path"]
+    invalidate = getattr(req.world_index, "invalidate", None)
+    if callable(invalidate):
+        invalidate()
+        # Rebuild now so the reported generation is the one that includes
+        # this write.
+        _ensure_index(req)
+    result = dict(result, generation=_generation(req))
     return _ok("Entry saved.", result)
 
 
@@ -433,6 +519,9 @@ def _render_new_text(body):
         template_path = ""
     if not isinstance(template_path, str):
         raise ValueError("Template must be a vault path.")
+    initial_body = body.get("body", "")
+    if not _valid_text(initial_body):
+        raise ValueError("Entry text must be a string under one megabyte.")
     lines = []
     from_targets = body.get("from_targets", [])
     if not isinstance(from_targets, list) or any(not isinstance(p, str) or not p for p in from_targets):
@@ -440,16 +529,21 @@ def _render_new_text(body):
     if from_targets:
         links = [f"[[{_create_source_path(p)}]]" for p in from_targets]
         lines.append("From: " + " ".join(links))
+    origin = body.get("origin", [])
+    # A seed may carry its meaning in the same lossless syntax the parser
+    # understands, for example ``rainseed (a lantern made by rain)``.
+    origin_pattern = r"[^\s,()\r\n]+(?:\s+\([^\r\n]*\))?"
+    if not isinstance(origin, list) or any(not isinstance(word, str) or not re.fullmatch(origin_pattern, word.strip()) for word in origin):
+        raise ValueError("origin must contain seed words, optionally followed by a parenthesized gloss.")
+    if origin:
+        lines.append("Origin: " + " ".join(origin))
+    # Supported header directives must be consecutive for the parser to
+    # recognize them on a create/open round trip.  Tags are body content.
     tags = body.get("tags", [])
     if not isinstance(tags, list) or any(not isinstance(tag, str) or not re.fullmatch(r"[\w-]+", tag.lstrip("#"), re.UNICODE) for tag in tags):
         raise ValueError("tags must be a list of nonempty strings.")
     if tags:
         lines.append(" ".join("#" + tag.lstrip("#") for tag in tags))
-    origin = body.get("origin", [])
-    if not isinstance(origin, list) or any(not isinstance(word, str) or not re.fullmatch(r"[^\s\r\n]+", word) for word in origin):
-        raise ValueError("origin must be a list of nonempty strings.")
-    if origin:
-        lines.append("Origin: " + " ".join(origin))
     template = ""
     if template_path:
         # Caller resolves and reads the template after validation by the vault.
@@ -462,8 +556,14 @@ def _render_new_text(body):
         if lines: lines.append("")
         lines.extend(template.splitlines())
     text = "\n".join(lines)
+    if initial_body:
+        if text.rstrip():
+            text = text.rstrip("\n") + "\n\n"
+        text += initial_body
     if text and not text.endswith("\n"):
         text += "\n"
+    if not _valid_text(text):
+        raise ValueError("Created entry must be under one megabyte.")
     return text
 
 
@@ -532,12 +632,46 @@ def create_entry(req):
             # update explicitly so the user can review and retry it.
             result["idea_updated"] = False
             result["idea_error"] = str(error)
+    invalidate = getattr(req.world_index, "invalidate", None)
+    if callable(invalidate):
+        invalidate()
+        _ensure_index(req)
+    result = dict(result, generation=_generation(req))
     return _ok("Entry created.", result)
+
+
+def create_folder(req):
+    """Create an empty child folder below an existing vault directory."""
+    parent, name = req.body.get("parent", ""), req.body.get("name")
+    if not isinstance(parent, str) or not isinstance(name, str):
+        return _fail(400, "A parent folder and folder name are required.")
+    name = name.strip()
+    if (not name or name in (".", "..") or "/" in name or "\\" in name
+            or name.startswith(".")):
+        return _fail(400, "Folder name must be a single visible filename.")
+    path = (parent + "/" if parent else "") + name
+    try:
+        parent_full = req.vault.resolve(parent)
+        if req.vault.relative(parent_full) != parent or not os.path.isdir(parent_full):
+            return _fail(400, "Parent folder must be an existing canonical vault folder.")
+        result = req.vault.create_folder(path)
+    except InvalidPath as error:
+        return _fail(400, str(error))
+    except UnreadableSource as error:
+        return _fail(400, str(error))
+    except FolderConflict as error:
+        return _fail(409, str(error), {"path": error.existing_path})
+    invalidate = getattr(req.world_index, "invalidate", None)
+    if callable(invalidate):
+        invalidate()
+    return _ok("Folder created.", result)
 
 
 def backlog(req):
     from world_backlog import list_ideas
-    return _ok("Ideas loaded.", {"ideas": list_ideas(req.vault)})
+    _ensure_index(req)
+    return _ok("Ideas loaded.", {"ideas": list_ideas(req.vault),
+                                 "generation": _generation(req)})
 
 
 def strike_idea_route(req):
@@ -560,27 +694,6 @@ def strike_idea_route(req):
     return _ok("Idea marked as started.", result)
 
 
-def _nearby_groups(req, item):
-    result = {"named_not_linked": [], "same_biome": [], "same_tags": []}
-    candidates = _index_entries(req.world_index)
-    linked = {link.target.casefold() for link in item.links}
-    draft = item.body.casefold()
-    for other in candidates:
-        other_path = getattr(other, "path", None) or (other.get("path") if isinstance(other, dict) else None)
-        other_title = getattr(other, "title", None) or (other.get("title") if isinstance(other, dict) else None)
-        other_aliases = getattr(other, "aliases", []) or (other.get("aliases", []) if isinstance(other, dict) else [])
-        other_tags = getattr(other, "tags", []) or (other.get("tags", []) if isinstance(other, dict) else [])
-        if not other_path or other_path == item.path or not other_title:
-            continue
-        names = [other_title] + list(other_aliases)
-        if any(name.casefold() not in linked and re.search(r"(?<!\w)" + re.escape(name.casefold()) + r"(?!\w)", draft) for name in names):
-            result["named_not_linked"].append({"path": other_path, "title": other_title})
-        overlap = sorted(set(item.tags) & set(other_tags))
-        if overlap:
-            result["same_tags"].append({"path": other_path, "title": other_title, "tags": overlap})
-    return result
-
-
 def nearby(req):
     text, path, revision = req.body.get("text"), req.body.get("path", ""), req.body.get("client_revision")
     if not _valid_text(text):
@@ -589,58 +702,206 @@ def nearby(req):
         return _fail(400, "Draft path and client revision are required.")
     item = parse(text, path or "Draft.md")
     _ensure_index(req)
+    skipped = []
     html = render(item, lambda target: _resolve(req, target, item.path),
                   base_entries=_index_entries(req.world_index),
-                  base_resolve=lambda target, source: _resolution(req, target, source))
-    groups = _nearby_groups(req, item)
+                  base_resolve=lambda target, source: _resolution(req, target, source),
+                  skipped=skipped)
+    groups = {"named_not_linked": [], "same_biome": [], "same_tags": [],
+              "talks_about_same_things": [], "linked_from_what_you_link": []}
+    merged = []
     index = req.world_index
-    fn = None
     if index is not None:
+        from nearby import suggest
         try:
-            from nearby import suggestions
-            fn = lambda draft: suggestions(draft, index, revision)
-        except ImportError:
-            fn = getattr(index, "nearby", None)
-    if callable(fn):
-        try:
-            supplied = fn(item)
-            if isinstance(supplied, dict):
-                for key, cards in supplied.items():
-                    if isinstance(cards, list):
-                        groups[key] = cards
+            supplied = suggest(item, index, revision,
+                               _dismissed(req, "target"))
+            for key, cards in supplied["groups"].items():
+                if isinstance(cards, list):
+                    groups[key] = cards
+            merged = supplied["merged"]
         except (TypeError, ValueError):
             pass
-    return _ok("Draft preview ready.", {"client_revision": revision, "html": html, "groups": groups})
+    # Templates and the root tag index are structural notes.
+    def structural(card):
+        return isinstance(card, dict) and (
+            card.get("path") == "Tags.md" or
+            str(card.get("path", "")).startswith("Templates/"))
+    for key, cards in groups.items():
+        if isinstance(cards, list):
+            groups[key] = [card for card in cards if not structural(card)]
+    merged = [card for card in merged if not structural(card)]
+    # The editor needs a parsed view of its unsaved draft without receiving a
+    # second copy of the raw note.  Keep this deliberately to supported
+    # structured fields so the client can show a live summary safely.
+    metadata = {
+        "from_targets": [asdict(link) for link in item.from_targets],
+        "origin": item.origin, "glosses": item.glosses, "themes": item.themes,
+        "aliases": item.aliases, "tags": item.tags, "notes": item.notes,
+    }
+    return _ok("Draft preview ready.", {"client_revision": revision, "html": html,
+                                         "skipped": skipped, "groups": groups,
+                                         "merged": merged, "metadata": metadata,
+                                         "generation": _generation(req)})
 
 
 def matrix(req):
     _ensure_index(req)
     from world_reports import coverage_matrix
-    return _ok("Coverage loaded.", coverage_matrix(req.world_index))
+    return _ok("Coverage loaded.", coverage_matrix(req.world_index) |
+               {"generation": _generation(req)})
+
+
+def placement(req):
+    """Folder, From and template for a place and/or kind picked on the create screen.
+
+    A bare request returns only ``kinds``; the other fields are null.
+    """
+    _ensure_index(req)
+    from world_reports import placement as place, world_kinds
+    origin, kind = req.query.get("from"), req.query.get("kind")
+    for value in (origin, kind):
+        if value is not None and (not isinstance(value, str) or len(value) > 1000):
+            return _fail(400, "`from` and `kind` must be short text.")
+    origin, kind = origin or None, kind or None
+    # With neither, the answer is just the kinds (the create screen's chips).
+    if kind is not None and kind not in world_kinds(req.world_index):
+        return _fail(400, f"Unknown kind: {kind}")
+    if origin is not None and _entry_at(req.world_index, origin) is None:
+        return _fail(404, f"No such entry: {origin}")
+    return _ok("Placement ready.", place(req.world_index, origin, kind))
+
+
+def _dismissed(req, kind):
+    """Dismissed keys of one kind for this request's world."""
+    from world_triage import store_for_request
+    store = store_for_request(req)
+    return store.keys(kind) if store is not None else frozenset()
+
+
+def _dismissal_counts(req, **kinds):
+    """How many dismissals of each named group of kinds the store holds.
+
+    ``_dismissed`` and ``split_dismissed`` count the *rows* a dismissal hides;
+    this counts the dismissals themselves, so the UI can say both.
+    """
+    from world_triage import store_for_request
+    store = store_for_request(req)
+    found = store.dismissed() if store is not None else []
+    return {name: sum(1 for row in found if row["kind"] in group)
+            for name, group in kinds.items()}
+
+
+def _with_triage(rows, kind, key_of):
+    """Tag rows with the ``triage`` kind and key the UI sends to dismiss them."""
+    return [dict(row, triage={"kind": kind, "key": key_of(row)}) for row in rows]
 
 
 def health(req):
     _ensure_index(req)
-    from world_reports import health_report
+    from world_reports import health_report, mention_counts
+    from world_triage import (drift_row_key, mention_row_key, name_key,
+                              normalize_key, split_dismissed)
     sections = health_report(req.world_index)
     from world_names import names_without_entries
-    sections["names_without_entry"] = names_without_entries(req.world_index)
+    names = names_without_entries(req.world_index)
     from world_lexicon import WorldLexicon
-    lexicon = WorldLexicon(req.world_index, req.fm).query()
-    uses = {row["word"]: row["uses"] for row in lexicon["entries"]}
-    sections["spelling_drift"] = [
-        {**row, "path": uses[row["from"]][0]["path"],
-         "other_path": uses[row["to"]][0]["path"]}
-        for row in lexicon["drift"]
-        if uses.get(row["from"]) and uses.get(row["to"])
-    ]
-    return _ok("Upkeep loaded.", {"sections": sections,
-                                  "counts": {key: len(rows) for key, rows in sections.items()}})
+    lexicon = WorldLexicon(req.world_index, req.fm, req.word_index).query()
+    entries_by_word = {row["word"]: row for row in lexicon["entries"]}
+    uses = {word: row["uses"] for word, row in entries_by_word.items()}
+    drift = []
+    for row in lexicon["drift"]:
+        if not (uses.get(row["from"]) and uses.get(row["to"])):
+            continue
+        item = {**row, "path": uses[row["from"]][0]["path"],
+                "other_path": uses[row["to"]][0]["path"]}
+        for side, word in (("from", row["from"]), ("to", row["to"])):
+            if "which" in entries_by_word[word]:
+                item[side + "_which"] = entries_by_word[word]["which"]
+        drift.append(item)
+    dismissed_words = _dismissed(req, "word")
+    names, names_hidden = split_dismissed(
+        names, _dismissed(req, "name"), name_key)
+    drift, drift_hidden = split_dismissed(
+        drift, _dismissed(req, "drift"), drift_row_key,
+        extra=lambda row: (normalize_key("word", row["from"]) in dismissed_words or
+                           normalize_key("word", row["to"]) in dismissed_words))
+    dismissed_targets = _dismissed(req, "target")
+    mentions, mentions_hidden = split_dismissed(
+        sections["unlinked_mentions"], _dismissed(req, "mention"), mention_row_key,
+        extra=lambda row: row["target_path"] in dismissed_targets)
+    # A common word (Despite, Water) is flagged, not dropped: the page hides it
+    # by default but can still show it. The dictionary is the lexicon's own.
+    from world_lexicon import _dictionary, _key
+    common = _dictionary(req.fm) if req.fm is not None else frozenset()
+    names = [dict(row, common=len(row["phrase"].split()) == 1 and
+                  _key(row["phrase"]) in common) for row in names]
+    sections["names_without_entry"] = _with_triage(names, "name", name_key)
+    sections["spelling_drift"] = _with_triage(drift, "drift", drift_row_key)
+    sections["unlinked_mentions"] = [
+        dict(row, target_triage={"kind": "target", "key": row["target_path"]})
+        for row in _with_triage(mentions, "mention", mention_row_key)]
+    # The section keeps every row so the UI can reveal the rest; the headline
+    # count is the rows worth acting on.
+    counts = {key: len(rows) for key, rows in sections.items()}
+    counts["unlinked_mentions"] = sum(1 for row in mentions if row["actionable"])
+    counts["unlinked_mentions_all"] = len(mentions)
+    return _ok("Upkeep loaded.", {
+        "sections": sections,
+        "counts": counts,
+        "mention_counts": mention_counts(mentions),
+        "dismissed": {"names_without_entry": names_hidden,
+                      "spelling_drift": drift_hidden,
+                      "unlinked_mentions": mentions_hidden},
+        "dismissals": _dismissal_counts(
+            req, names_without_entry=("name",), spelling_drift=("drift",),
+            unlinked_mentions=("mention", "target")),
+        "generation": _generation(req),
+    })
+
+
+def _triage_payload(store):
+    rows = [{"kind": row["kind"], "key": row["key"], "dismissed_at": row["at"]}
+            for row in store.dismissed()]
+    counts = {}
+    from world_triage import KINDS
+    for kind in KINDS:
+        counts[kind] = sum(1 for row in rows if row["kind"] == kind)
+    return {"dismissals": rows, "counts": counts}
+
+
+def triage_list(req):
+    from world_triage import store_for_request
+    store = store_for_request(req)
+    if store is None:
+        return _fail(404, "World vault is not enabled.")
+    return _ok("Dismissals loaded.", _triage_payload(store))
+
+
+def triage_update(req):
+    from world_triage import store_for_request, validate
+    store = store_for_request(req)
+    if store is None:
+        return _fail(404, "World vault is not enabled.")
+    action, kind, key = (req.body.get("action"), req.body.get("kind"),
+                         req.body.get("key"))
+    if action not in ("dismiss", "restore"):
+        return _fail(400, "Action must be dismiss or restore.")
+    problem = validate(kind, key)
+    if problem:
+        return _fail(400, problem)
+    try:
+        changed = (store.dismiss if action == "dismiss" else store.restore)(kind, key)
+    except OSError:
+        return _fail(500, "Could not save the dismissal.")
+    message = ("Dismissed." if action == "dismiss" else "Restored.")
+    return _ok(message, dict(_triage_payload(store), changed=changed))
 
 
 def lexicon(req):
     _ensure_index(req)
     from world_lexicon import WorldLexicon
+    from world_triage import drift_row_key, normalize_key, split_dismissed
     query = req.query.get("q", "")
     biome = req.query.get("biome", "")
     once = req.query.get("once", "")
@@ -653,17 +914,30 @@ def lexicon(req):
         return _fail(400, "Biome must be a canonical biome path.")
     data = WorldLexicon(req.world_index, req.fm, req.word_index).query(
         q=query, biome=biome or None, once=once in ("1", "true"))
+    words = _dismissed(req, "word")
+    entries, entries_hidden = split_dismissed(
+        data["entries"], words, lambda row: normalize_key("word", row["word"]))
+    drift, drift_hidden = split_dismissed(
+        data["drift"], _dismissed(req, "drift"), drift_row_key,
+        extra=lambda row: (normalize_key("word", row["from"]) in words or
+                           normalize_key("word", row["to"]) in words))
+    data["entries"] = _with_triage(entries, "word", lambda row: row["word"])
+    data["drift"] = _with_triage(drift, "drift", drift_row_key)
     for row in data["drift"]:
         row["paths"] = list(dict.fromkeys(
             row.get("from_paths", ()) + row.get("to_paths", ())))
+    data["dismissed"] = {"entries": entries_hidden, "drift": drift_hidden}
+    data["dismissals"] = _dismissal_counts(req, entries=("word",), drift=("drift",))
     data["biomes"] = [{"path": path, "title": entry.title}
                       for path, entry in sorted(req.world_index.entries.items())
                       if path.startswith("Locations/Biomes/")]
+    data["generation"] = _generation(req)
     return _ok("Lexicon loaded.", data)
 
 
 def roll(req):
     _ensure_index(req)
+    from nearby import link_target
     from world_roller import roll as make_roll
     body = req.body
     facet = body.get("facet")
@@ -681,7 +955,10 @@ def roll(req):
         active_words = req.session.active_words()
         result = make_roll(req.world_index.entries, req.world_index.backlinks,
                            active_words, cheat_sheet, facet=facet, entry=entry,
-                           words=words)
+                           words=words,
+                           direct_places=getattr(req.world_index, "direct_places", None),
+                           link_of=lambda path: link_target(req.world_index, path),
+                           story_folders=getattr(req.world_index, "story_folders", ()))
     except ValueError as error:
         return _fail(400, str(error))
     return _ok("Prompt rolled.", result)
@@ -690,8 +967,8 @@ def roll(req):
 def story(req):
     _ensure_index(req)
     from world_story import report
-    return _ok("Story report loaded.", report(req.world_index,
-                                                getattr(req.world_index, "story_folders", ())))
+    data = report(req.world_index, getattr(req.world_index, "story_folders", ()))
+    return _ok("Story report loaded.", dict(data, generation=_generation(req)))
 
 
 def quotes(req):
@@ -719,6 +996,11 @@ def export(req):
         return _fail(400, str(error))
 
 
+def _generation(req):
+    """The index generation behind a response, or None without an index."""
+    return getattr(req.world_index, "generation", None) if req.world_index is not None else None
+
+
 def _ensure_index(req):
     ensure = getattr(req.world_index, "ensure_ready", None) if req.world_index is not None else None
     if callable(ensure):
@@ -726,6 +1008,7 @@ def _ensure_index(req):
 
 
 ROUTES = {
+    ("GET", "/api/world/status"): status,
     ("GET", "/api/world/tree"): tree,
     ("GET", "/api/world/entry"): get_entry,
     ("GET", "/api/world/search"): search,
@@ -733,12 +1016,16 @@ ROUTES = {
     ("GET", "/api/world/tags"): tags,
     ("POST", "/api/world/entry"): save_entry,
     ("POST", "/api/world/new"): create_entry,
+    ("POST", "/api/world/folder"): create_folder,
     ("GET", "/api/world/backlog"): backlog,
     ("POST", "/api/world/backlog/strike"): strike_idea_route,
     ("POST", "/api/world/nearby"): nearby,
     ("GET", "/api/world/matrix"): matrix,
+    ("GET", "/api/world/placement"): placement,
     ("GET", "/api/world/health"): health,
     ("GET", "/api/world/lexicon"): lexicon,
+    ("GET", "/api/world/triage"): triage_list,
+    ("POST", "/api/world/triage"): triage_update,
     ("POST", "/api/world/roll"): roll,
     ("GET", "/api/world/story"): story,
     ("GET", "/api/world/quotes"): quotes,

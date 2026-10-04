@@ -5,6 +5,7 @@ and pass the complete updated text back through :func:`parse`.
 """
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from html import escape
 import re
@@ -49,15 +50,146 @@ class Entry:
     revision: str = ""
 
 
-_WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")
-_ASIDE = re.compile(r"\$\{([^}]*)\}")
+class _Scanned:
+    """A regular expression whose matches are located by a linear scanner.
+
+    ``re`` retries a failed search from every later position, so a pattern
+    such as ``\\[\\[[^\\]]+\\]\\]`` is quadratic on a line of unclosed ``[[``.
+    ``spans`` finds the same leftmost, non-overlapping matches in one pass;
+    the pattern is then matched only within each span, to provide groups.
+    """
+
+    def __init__(self, pattern: str, spans):
+        self.pattern = re.compile(pattern)
+        self._spans = spans
+
+    def finditer(self, text: str):
+        for start, end in self._spans(text):
+            yield self.pattern.fullmatch(text, start, end)
+
+    def sub(self, repl, text: str) -> str:
+        pieces, cursor = [], 0
+        for match in self.finditer(text):
+            pieces.append(text[cursor:match.start()])
+            pieces.append(repl(match))
+            cursor = match.end()
+        pieces.append(text[cursor:])
+        return "".join(pieces)
+
+
+def _delimited(opener: str, stop: str, closer: str, minimum: int):
+    """Spans of ``opener``, at least ``minimum`` characters other than
+    ``stop``, then ``closer`` (which begins with ``stop``).
+
+    Every opener before the next ``stop`` shares that ``stop``, so when one
+    fails they all do and the scan resumes after it.
+    """
+    def spans(text: str):
+        position = 0
+        while True:
+            start = text.find(opener, position)
+            if start < 0:
+                return
+            inner = start + len(opener)
+            end = text.find(stop, inner)
+            if end < 0:
+                return
+            if end - inner >= minimum and text.startswith(closer, end):
+                position = end + len(closer)
+                yield start, position
+            else:
+                position = end + 1
+    return spans
+
+
+def _markdown_link_spans(text: str):
+    """Spans of ``[label](url)``, as ``\\[([^\\]]+)\\]\\(([^)]+)\\)`` matches."""
+    position, close = 0, -1
+    while True:
+        start = text.find("[", position)
+        if start < 0:
+            return
+        bracket = text.find("]", start + 1)
+        if bracket < 0:
+            return
+        position = bracket + 1
+        if bracket > start + 1 and text.startswith("(", bracket + 1):
+            # The first ")" after the "(" is reused until the scan passes it.
+            if close < bracket + 2:
+                close = text.find(")", bracket + 2)
+                if close < 0:
+                    return
+            if close > bracket + 2:
+                position = close + 1
+                yield start, position
+
+
+_WIKILINK = _Scanned(r"\[\[([^\]]+)\]\]", _delimited("[[", "]", "]]", 1))
+_ASIDE = _Scanned(r"\$\{([^}]*)\}", _delimited("${", "}", "}", 0))
+_MARKDOWN_LINK = _Scanned(r"\[([^\]]+)\]\(([^)]+)\)", _markdown_link_spans)
+_WHITESPACE = re.compile(r"\s*")
+
+
+def _fenced_block_spans(text: str):
+    """Spans of ``(?ms)^```(?:base)?\\s*.*?^```\\s*$`` matches, linearly.
+
+    A block runs from a line starting with three backticks to the next line
+    that is three backticks and whitespace, plus any blank lines after it.
+    Once a block has no closing line, no later one can have one either.
+    """
+    def fence_line(position):
+        if position == 0 and text.startswith("```"):
+            return 0
+        found = text.find("\n```", max(position - 1, 0))
+        return found + 1 if found >= 0 else -1
+    start = fence_line(0)
+    while start >= 0:
+        close = fence_line(start + 3)
+        while close >= 0:
+            blank = _WHITESPACE.match(text, close + 3).end()
+            if blank == len(text):
+                end = blank
+                break
+            end = text.rfind("\n", close + 3, blank)
+            if end >= 0:
+                break
+            close = fence_line(blank)
+        if close < 0:
+            return
+        yield start, end
+        start = fence_line(end)
+
+
+def _without_fenced_blocks(text: str) -> str:
+    """``re.sub(r"(?ms)^```(?:base)?\\s*.*?^```\\s*$", " ", text)``, linearly."""
+    pieces, cursor = [], 0
+    for start, end in _fenced_block_spans(text):
+        pieces.append(text[cursor:start])
+        pieces.append(" ")
+        cursor = end
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
 _TAG = re.compile(r"(?<![\w])#([\w-]+)", re.UNICODE)
 _WORD = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 
 
-def _span(text: str, start: int, end: int) -> Span:
-    return Span(len(text[:start].encode("utf-16-le")) // 2,
-                len(text[:end].encode("utf-16-le")) // 2)
+_ASTRAL = re.compile("[\U00010000-\U0010ffff]")
+
+
+def _utf16_offsets(text: str):
+    """Map offsets in ``text`` to UTF-16 (JavaScript) offsets.
+
+    Each character outside the Basic Multilingual Plane is two UTF-16 code
+    units, so an offset grows by the number of such characters before it.
+    """
+    astral = [match.start() for match in _ASTRAL.finditer(text)]
+    return lambda offset: offset + bisect_left(astral, offset)
+
+
+def _span(utf16, start: int, end: int) -> Span:
+    return Span(utf16(start), utf16(end))
 
 
 def _split_values(value: str) -> list[str]:
@@ -68,22 +200,22 @@ def _split_values(value: str) -> list[str]:
     return [v.strip().strip("\"'") for v in value.split(",") if v.strip()]
 
 
-def _header_link(raw: str, text: str, start: int, end: int) -> Link:
+def _header_link(raw: str, utf16, start: int, end: int) -> Link:
     inner = raw[2:-2]
     target, sep, display = inner.partition("|")
     target = target.strip()
     target, hashmark, heading = target.partition("#")
     return Link(target.strip(), display.strip() if sep else None,
-                heading.strip() if hashmark else None, _span(text, start, end))
+                heading.strip() if hashmark else None, _span(utf16, start, end))
 
 
-def _header_items(value: str, text: str = "", offset: int = 0) -> list[Link]:
+def _header_items(value: str, utf16, offset: int = 0) -> list[Link]:
     matches = list(_WIKILINK.finditer(value))
     if matches:
         return [Link(m.group(1).split("|", 1)[0].split("#", 1)[0].strip(),
                      (m.group(1).split("|", 1)[1].strip() if "|" in m.group(1) else None),
-                     None, _span(text, offset + m.start(), offset + m.end())) for m in matches]
-    return [Link(v.strip(), None, None, _span(text, offset, offset + len(value))) for v in _split_values(value)]
+                     None, _span(utf16, offset + m.start(), offset + m.end())) for m in matches]
+    return [Link(v.strip(), None, None, _span(utf16, offset, offset + len(value))) for v in _split_values(value)]
 
 
 def parse(text: str, path: str, revision: str = "") -> Entry:
@@ -93,6 +225,7 @@ def parse(text: str, path: str, revision: str = "") -> Entry:
     title = parts[-1][:-3] if parts[-1].lower().endswith(".md") else parts[-1]
     kind, folder = (parts[0] if len(parts) > 1 else "", "/".join(parts[:-1]))
     entry = Entry(path, title, kind, folder, text, revision=revision)
+    utf16 = _utf16_offsets(text)
     lines = text.splitlines(keepends=True)
     offsets = []
     n = 0
@@ -118,7 +251,7 @@ def parse(text: str, path: str, revision: str = "") -> Entry:
                             entry.aliases = []
                     elif key == "from":
                         entry.from_targets = _header_items(
-                            value, text, offsets[row_index] + row.find(value))
+                            value, utf16, offsets[row_index] + row.find(value))
                     elif key in ("origin", "source"):
                         entry.origin, entry.glosses = _parse_origin(value)
                     elif key == "themes":
@@ -139,7 +272,7 @@ def parse(text: str, path: str, revision: str = "") -> Entry:
             break
         key, value = m.group(1).lower(), m.group(2)
         if key == "from":
-            entry.from_targets.extend(_header_items(value, text, offsets[i] + line.find(value)))
+            entry.from_targets.extend(_header_items(value, utf16, offsets[i] + line.find(value)))
         elif key in ("origin", "source"):
             entry.origin, entry.glosses = _parse_origin(value)
         else:
@@ -152,7 +285,7 @@ def parse(text: str, path: str, revision: str = "") -> Entry:
         for j in range(body_start):
             if masked[j] not in "\r\n": masked[j] = " "
     for match in _WIKILINK.finditer(text):
-        link = _header_link(match.group(), text, match.start(), match.end())
+        link = _header_link(match.group(), utf16, match.start(), match.end())
         entry.links.append(link)
     for match in _ASIDE.finditer(text):
         entry.notes.append(match.group(1))
@@ -161,7 +294,7 @@ def parse(text: str, path: str, revision: str = "") -> Entry:
         if tag not in entry.tags: entry.tags.append(tag)
     cleaned = entry.body
     # Metadata-like directives, code fences and Base blocks are not prose.
-    cleaned = re.sub(r"(?ms)^```(?:base)?\s*.*?^```\s*$", " ", cleaned)
+    cleaned = _without_fenced_blocks(cleaned)
     entry.words = len(_WORD.findall(cleaned))
     entry.stub = entry.words < 20
     return entry
@@ -240,12 +373,93 @@ def _target_href(target: str, index) -> str | None:
     return "/world/entry?path=" + quote(path, safe="/") if path else None
 
 
-def _inline(text: str, index=None) -> str:
+_PLACEHOLDER = re.compile(r"\x00(\d+)\x00")
+_MAX_NESTING = 8
+_BACKTICKS = re.compile(r"`+")
+_EMBED = re.compile(r"!\[\[[^\]]{0,500}\]\]")
+_IMAGE = re.compile(r"!\[[^\]]{0,500}\]\((?:[^()]|\([^()]*\)){0,1000}\)")
+_TASK_BOX = re.compile(r"^\[[ xX]\](?=\s|$)\s?")
+# No two whitespace runs are adjacent, so a long blank run cannot be split
+# between them in quadratically many ways.
+_TABLE_SEPARATOR = re.compile(r"^\s*(?:\|\s*)?:?-+:?\s*(?:\|\s*:?-+:?\s*)*(?:\|\s*)?$")
+
+
+def _table_start(header: str, separator: str) -> bool:
+    """A header row of two or more cells over a separator row containing ``|``.
+
+    Without both, a line with a ``|`` above a ``---`` line is prose over a rule.
+    """
+    return ("|" in separator and bool(_TABLE_SEPARATOR.match(separator))
+            and len(_table_cells(header)) >= 2 and len(_table_cells(separator)) >= 2)
+
+
+def _table_cells(row: str) -> list[str]:
+    """Cells of a pipe-separated row, ignoring the optional outer pipes."""
+    row = row.strip()
+    row = row[1:] if row.startswith("|") else row
+    row = row[:-1] if row.endswith("|") and not row.endswith("\\|") else row
+    return re.split(r"(?<!\\)\|", row) if row.strip() else []
+
+
+_RULE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+_BULLET = re.compile(r"^(\t*| *)(?:[-*+]\s+)(.*)$")
+_NUMBERED = re.compile(r"^(\t*| *)(\d{1,9})[.)]\s+(.*)$")
+
+
+def _code_spans(text: str, hold) -> str:
+    """Replace backtick code spans with held ``<code>`` elements.
+
+    A span opens at a run of backticks and closes at the next run of exactly
+    the same length; an unmatched run stays literal. Linear in the number of
+    runs, unlike a lazy regular expression.
+    """
+    runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(text)]
+    if not runs:
+        return text
+    by_length: dict[int, list[int]] = {}
+    for position, (start, end) in enumerate(runs):
+        by_length.setdefault(end - start, []).append(position)
+    pieces, cursor, position = [], 0, 0
+    while position < len(runs):
+        start, end = runs[position]
+        candidates = by_length[end - start]
+        later = bisect_right(candidates, position)
+        if later >= len(candidates):
+            position += 1
+            continue
+        close_start, close_end = runs[candidates[later]]
+        pieces.append(text[cursor:start])
+        pieces.append(hold("<code>" + escape(text[end:close_start]) + "</code>"))
+        cursor = close_end
+        position = candidates[later] + 1
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
+def _note_skip(skipped, kind: str) -> None:
+    if skipped is not None and kind not in skipped:
+        skipped.append(kind)
+
+
+def _unsupported(text: str, kind: str, skipped) -> str:
+    """Escaped raw text for a construct the renderer does not draw."""
+    _note_skip(skipped, kind)
+    return f'<span class="world-unsupported" data-kind="{kind}">{escape(text)}</span>'
+
+
+def _inline(text: str, index=None, skipped=None) -> str:
     # Protect recognized constructs before escaping all remaining raw HTML.
     tokens = []
     def hold(value):
         tokens.append(value)
         return f"\x00{len(tokens)-1}\x00"
+    # The placeholder delimiter must not be forgeable from the note itself.
+    text = text.replace("\x00", "")
+    # Code spans first: nothing inside backticks is interpreted.
+    text = _code_spans(text, hold)
+    # Embeds and images are not drawn; their raw text stays visible and inert.
+    text = _EMBED.sub(lambda m: hold(_unsupported(m.group(0), "embed", skipped)), text)
+    text = _IMAGE.sub(lambda m: hold(_unsupported(m.group(0), "image", skipped)), text)
     def wiki(m):
         inner = m.group(1)
         target, _, label = inner.partition("|")
@@ -263,7 +477,7 @@ def _inline(text: str, index=None) -> str:
         if _safe_external_url(url):
             return hold(f'<a href="{escape(url, quote=True)}" rel="noopener noreferrer">{escape(label)}</a>')
         return hold(escape(m.group(0)))
-    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", md_link, text)
+    text = _MARKDOWN_LINK.sub(md_link, text)
     def bare(m):
         url = m.group(0)
         if _safe_external_url(url):
@@ -275,23 +489,74 @@ def _inline(text: str, index=None) -> str:
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"~~(.+?)~~", r"<del>\1</del>", escaped)
     escaped = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", escaped)
-    for i, value in enumerate(tokens): escaped = escaped.replace(f"\x00{i}\x00", value)
+    # A held token may itself contain placeholders (a code span inside a link
+    # label), always for earlier tokens, so a few passes settle it. The bound
+    # keeps the cost linear in the text however the tokens nest.
+    def substitute(m):
+        return tokens[int(m.group(1))] if int(m.group(1)) < len(tokens) else m.group(0)
+    for _ in range(_MAX_NESTING):
+        replaced = _PLACEHOLDER.sub(substitute, escaped)
+        if replaced == escaped:
+            break
+        escaped = replaced
     return escaped
 
 
-def render(entry: Entry, resolve_link=None, base_entries=None, base_resolve=None) -> str:
-    """Render the supported vault subset to safe HTML."""
+def _item(text: str, index, skipped) -> str:
+    """List item content; a task-list checkbox is kept as visible raw text."""
+    box = _TASK_BOX.match(text)
+    if box:
+        return (_unsupported(box.group(0).rstrip(), "task", skipped) + " " +
+                _inline(text[box.end():], index, skipped))
+    return _inline(text, index, skipped)
+
+
+def render(entry: Entry, resolve_link=None, base_entries=None, base_resolve=None,
+           skipped=None) -> str:
+    """Render the supported vault subset to safe HTML.
+
+    Constructs that are recognised but not drawn (tables, images, embeds and
+    task-list checkboxes) keep their escaped raw text inside a
+    ``world-unsupported`` element. When ``skipped`` is a list, the kinds
+    found are appended to it once each, in order of first appearance.
+    """
     lines = entry.body.splitlines()
-    out, paragraph, list_open, quote_open = [], [], False, False
+    out, paragraph, quote_open = [], [], False
+    list_kind = None  # "ul", "ol" or None
     in_fence = False
     fence_size = 3
     fence_language = ""
     fence_lines = []
+    def inline(value):
+        return _inline(value, resolve_link, skipped)
     def flush():
         if paragraph:
-            out.append("<p>" + "<br>\n".join(_inline(x, resolve_link) for x in paragraph) + "</p>")
+            out.append("<p>" + "<br>\n".join(inline(x) for x in paragraph) + "</p>")
             paragraph.clear()
-    for line in lines:
+    def close_list():
+        nonlocal list_kind
+        if list_kind:
+            out.append(f"</{list_kind}>")
+            list_kind = None
+    def close_quote():
+        nonlocal quote_open
+        if quote_open:
+            out.append("</blockquote>")
+            quote_open = False
+    def list_item(kind, indent, content, start=None):
+        nonlocal list_kind
+        if list_kind != kind:
+            close_list()
+            out.append(f'<ol start="{start}">' if kind == "ol" and start not in (None, 1)
+                       else f"<{kind}>")
+            list_kind = kind
+        depth = len(indent.expandtabs(4)) // 4
+        out.append("<li" + (f' style="margin-left:{depth * 1.5}em"' if depth else "") + ">"
+                   + _item(content, resolve_link, skipped) + "</li>")
+    position = 0
+    while position < len(lines):
+        line = lines[position]
+        position += 1
         if in_fence:
             close = re.match(r"^\s*(`{3,})\s*$", line)
             if close and len(close.group(1)) >= fence_size:
@@ -322,8 +587,8 @@ def render(entry: Entry, resolve_link=None, base_entries=None, base_resolve=None
         opening = re.match(r"^\s*(`{3,})([A-Za-z0-9_-]*)\s*$", line)
         if opening:
             flush()
-            if list_open: out.append("</ul>"); list_open = False
-            if quote_open: out.append("</blockquote>"); quote_open = False
+            close_list()
+            close_quote()
             in_fence = True
             fence_size = len(opening.group(1))
             fence_language = opening.group(2).lower()
@@ -331,31 +596,55 @@ def render(entry: Entry, resolve_link=None, base_entries=None, base_resolve=None
             continue
         if not line.strip():
             flush()
-            if list_open: out.append("</ul>"); list_open = False
-            if quote_open: out.append("</blockquote>"); quote_open = False
+            close_list()
+            close_quote()
+            continue
+        if ("|" in line and position < len(lines)
+                and _table_start(line, lines[position])):
+            flush()
+            close_list()
+            close_quote()
+            rows = [line, lines[position]]
+            position += 1
+            while position < len(lines) and lines[position].strip() and "|" in lines[position]:
+                rows.append(lines[position])
+                position += 1
+            _note_skip(skipped, "table")
+            out.append('<div class="world-unsupported" data-kind="table">'
+                       + "<br>\n".join(escape(row) for row in rows) + "</div>")
+            continue
+        if _RULE.match(line):
+            flush()
+            close_list()
+            close_quote()
+            out.append("<hr>")
             continue
         hm = re.match(r"^(#{1,6})\s+(.*)$", line)
         if hm:
             flush()
-            if list_open: out.append("</ul>"); list_open = False
-            level = len(hm.group(1)); out.append(f"<h{level}>{_inline(hm.group(2), resolve_link)}</h{level}>")
+            close_list()
+            level = len(hm.group(1)); out.append(f"<h{level}>{inline(hm.group(2))}</h{level}>")
             continue
-        bm = re.match(r"^(\t*| *)(?:[-*+]\s+)(.*)$", line)
+        bm = _BULLET.match(line)
         if bm:
             flush()
-            if quote_open: out.append("</blockquote>"); quote_open = False
-            if not list_open: out.append("<ul>"); list_open = True
-            depth = len(bm.group(1).expandtabs(4)) // 4
-            out.append("<li" + (f' style="margin-left:{depth * 1.5}em"' if depth else "") + ">" + _inline(bm.group(2), resolve_link) + "</li>")
+            close_quote()
+            list_item("ul", bm.group(1), bm.group(2))
             continue
-        if list_open: out.append("</ul>"); list_open = False
+        nm = _NUMBERED.match(line)
+        if nm:
+            flush()
+            close_quote()
+            list_item("ol", nm.group(1), nm.group(3), int(nm.group(2)))
+            continue
+        close_list()
         qm = re.match(r"^>\s?(.*)$", line)
         if qm:
             flush()
             if not quote_open: out.append("<blockquote>"); quote_open = True
-            out.append("<p>" + _inline(qm.group(1), resolve_link) + "</p>")
+            out.append("<p>" + inline(qm.group(1)) + "</p>")
             continue
-        if quote_open: out.append("</blockquote>"); quote_open = False
+        close_quote()
         if line.startswith("    ") or line.startswith("\t"):
             flush(); out.append("<pre><code>" + escape(line.lstrip(" \t")) + "</code></pre>")
         else:
@@ -363,6 +652,6 @@ def render(entry: Entry, resolve_link=None, base_entries=None, base_resolve=None
     flush()
     if in_fence:
         out.append("<pre><code>" + escape("\n".join(fence_lines)) + "</code></pre>")
-    if list_open: out.append("</ul>")
-    if quote_open: out.append("</blockquote>")
+    close_list()
+    close_quote()
     return "\n".join(out)

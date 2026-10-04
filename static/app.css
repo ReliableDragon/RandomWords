@@ -49,6 +49,30 @@ body {
   flex-direction: column;
 }
 
+/* ---------- worldbuilding walkthrough ---------- */
+
+.guide-page { min-height:100vh; display:block; }
+.guide-top { min-height:52px; display:flex; align-items:center; gap:.55rem; padding:.65rem max(1rem, calc((100% - 1180px) / 2)); border-bottom:1px solid var(--hair); background:var(--surface); font:500 .82rem var(--font-ui); }
+.guide-top .world-brand { color:var(--ink); font:600 1.05rem var(--font-display); text-decoration:none; }
+.guide-top .world-sep { color:var(--hair); }
+.guide-top .btn { margin-left:auto; }
+.guide-layout { max-width:1180px; margin:0 auto; display:grid; grid-template-columns:minmax(230px, .7fr) minmax(0, 2fr); gap:clamp(2rem, 7vw, 7rem); padding:clamp(2rem, 7vw, 6rem) max(1.25rem, 4vw); }
+.guide-aside { align-self:start; position:sticky; top:2rem; }
+.guide-aside .eyebrow { margin:0 0 .75rem; }
+.guide-aside h2 { font:500 clamp(2rem, 4vw, 3.4rem)/1.02 var(--font-display); margin:0; }
+.guide-aside p:not(.eyebrow) { color:var(--muted); font:1rem/1.55 var(--font-display); margin:1rem 0 1.5rem; }
+.guide-content { max-width:76ch; font:1.06rem/1.72 var(--font-display); }
+.guide-content h1 { font:500 clamp(2.25rem, 5vw, 4rem)/1.05 var(--font-display); margin:0 0 1.5rem; }
+.guide-content h2 { font:500 clamp(1.65rem, 3vw, 2.35rem)/1.12 var(--font-display); margin:3rem 0 .85rem; padding-top:.3rem; }
+.guide-content h2::before { content:''; display:block; width:2.3rem; border-top:2px solid var(--malachite); margin-bottom:.75rem; }
+.guide-content p { margin:0 0 1.15rem; }
+.guide-content ul { padding-left:1.3rem; margin:0 0 1.25rem; }
+.guide-content li { margin:.65rem 0; padding-left:.2rem; }
+.guide-content code { font:.82em var(--font-mono); background:var(--sunk); border-radius:3px; padding:.1em .28em; overflow-wrap:anywhere; }
+.guide-content pre { margin:1.4rem 0; padding:1rem 1.1rem; overflow:auto; border:1px solid var(--hair); border-radius:8px; background:var(--surface); }
+.guide-content pre code { padding:0; background:transparent; font-size:.82rem; line-height:1.55; }
+@media(max-width:760px) { .guide-layout { display:block; padding-top:2.5rem; }.guide-aside { position:static; margin-bottom:3.5rem; }.guide-top { padding:.65rem 1rem; }.guide-content { font-size:1rem; } }
+
 h1, h2 { margin: 0; }
 
 button {
@@ -454,6 +478,7 @@ kbd {
 
 #worldLink { margin-bottom: 1rem; text-decoration: none; }
 #worldLink[hidden] { display: none; }
+#walkthroughLink { margin-bottom:.5rem; text-decoration:none; }
 
 .btn-quiet .btn-label {
   font-size: 0.88rem;
@@ -964,3 +989,24 @@ kbd {
     overflow-y: visible;
   }
 }
+
+/* ---------- embedded in the world desk's drawer (/?embed=1) ---------- */
+
+html[data-embed] .brand,
+html[data-embed] .tagline,
+html[data-embed] #walkthroughLink,
+html[data-embed] #worldLink { display: none; }
+html[data-embed] .library-head { padding-top: 1rem; }
+
+/* The frame is at most 520px wide, so it always gets the stacked layout. Put
+   the draw and the kept words first and the text library after them, and let
+   the whole page scroll instead of three nested panes. */
+html[data-embed] .app {
+  grid-template-columns: 1fr;
+  grid-template-rows: none;
+  grid-template-areas: "bench" "library" "pools";
+}
+html[data-embed] .bench { overflow-y: visible; }
+html[data-embed] .draw-area { padding: 1.5rem 1rem 1.5rem; }
+html[data-embed] .draw-controls { flex-wrap: wrap; justify-content: center; }
+html[data-embed] .library { width: auto; flex: 0 0 auto; max-height: none; position: static; height: 26rem; border-right: none; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }

@@ -1,11 +1,13 @@
 import http.client
 import json
 import os
+import re
 import tempfile
 import threading
 import unittest
 
 from fake_directories import FakeDirectories
+import web_server
 from web_server import make_server
 
 
@@ -158,6 +160,44 @@ class ServerTest(unittest.TestCase):
     self.assertEqual(status, 200)
     self.assertIn(b'<', raw)
 
+  def test_walkthrough_is_served_without_a_vault(self):
+    status, raw = self.send('GET', '/walkthrough')
+    self.assertEqual(status, 200)
+    self.assertIn(b'Worldbuilding walkthrough', raw)
+    self.assertIn(b'python3 serve.py --vault', raw)
+    self.assertIn(b'id="open-your-vault"', raw)
+    self.assertNotIn(b'href="/world">Open desk', raw)
+
+  def test_embedded_generator_is_the_index_page_and_may_be_framed(self):
+    # The world desk loads /?embed=1 in a same-origin iframe, so the page must
+    # be served as usual and nothing may forbid framing it.
+    conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+    try:
+      conn.request('GET', '/?embed=1')
+      response = conn.getresponse()
+      raw = response.read()
+      names = {name.lower() for name, _ in response.getheaders()}
+    finally:
+      conn.close()
+    self.assertEqual(response.status, 200)
+    self.assertIn(b'<script src="/embed.js"></script>', raw)
+    self.assertIn(b'id="drawBtn"', raw)
+    self.assertNotIn('x-frame-options', names)
+    self.assertNotIn('content-security-policy', names)
+
+  def test_embed_script_is_served_as_a_file(self):
+    # Embed detection lives in a file, not an inline script, so a hosted
+    # Content-Security-Policy can forbid inline scripts.
+    conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+    try:
+      conn.request('GET', '/embed.js')
+      response = conn.getresponse()
+      raw = response.read()
+    finally:
+      conn.close()
+    self.assertEqual(response.status, 200)
+    self.assertIn(b'data-embed', raw)
+
   def test_unknown_static_path_is_not_found(self):
     status, payload = self.send('GET', '/secrets.txt')
     self.assertEqual(status, 404)
@@ -176,10 +216,107 @@ class ServerTest(unittest.TestCase):
       status, raw = self.send('GET', '/world', port=server.server_port)
       self.assertEqual(status, 200)
       self.assertIn(b'<!doctype html', raw.lower())
+      status, guide = self.send('GET', '/walkthrough', port=server.server_port)
+      self.assertEqual(status, 200)
+      self.assertIn(b'href="/world">Open desk', guide)
       status, payload = self.send('GET', '/api/world/tree', port=server.server_port)
       self.assertEqual(status, 200, payload)
       self.assertTrue(payload['ok'])
       self.assertEqual([row['path'] for row in payload['data']['entries']], ['A note.md'])
+
+  ###
+  ### the world desk's ES modules
+  ###
+
+  def fetch_with_headers(self, path, port):
+    conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+    try:
+      conn.request('GET', path, headers={'Host': f'127.0.0.1:{port}'})
+      response = conn.getresponse()
+      raw = response.read()
+      return response.status, response.getheader('Content-Type'), raw
+    finally:
+      conn.close()
+
+  def test_module_routes_only_list_plain_lowercase_javascript_files(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for name in ['main.js', 'entry_header.js', 'Main.js', 'a-b.js', 'x1.js',
+                   '.hidden.js', 'notes.txt', 'main.js.map', 'main.jsx',
+                   'v2.min.js', 'A1.js']:
+        with open(os.path.join(directory, name), 'w') as f:
+          f.write('export {};')
+      os.mkdir(os.path.join(directory, 'folder.js'))
+      routes = web_server.module_routes(directory)
+    # Digits are fine; dots, dashes and capitals are not.
+    self.assertEqual(sorted(routes),
+                     ['/world/entry_header.js', '/world/main.js', '/world/x1.js'])
+    self.assertEqual(routes['/world/main.js'],
+                     ('world/main.js', 'text/javascript; charset=utf-8'))
+
+  def test_module_routes_tolerate_a_missing_directory(self):
+    self.assertEqual(web_server.module_routes('/nonexistent-module-dir'), {})
+
+  def test_the_shipped_modules_are_all_in_the_table(self):
+    shipped = [n for n in os.listdir(web_server.MODULE_DIR) if n.endswith('.js')]
+    self.assertIn('main.js', shipped)
+    for name in shipped:
+      with self.subTest(name=name):
+        self.assertRegex(name, r'^[a-z0-9_]+\.js$')
+        self.assertIn(f'/world/{name}', web_server.STATIC)
+
+  def test_every_module_import_is_a_served_module(self):
+    for name in os.listdir(web_server.MODULE_DIR):
+      with open(os.path.join(web_server.MODULE_DIR, name), encoding='utf-8') as f:
+        source = f.read()
+      for target in re.findall(r"from '\./([^']+)'", source):
+        with self.subTest(module=name, imports=target):
+          self.assertIn(f'/world/{target}', web_server.STATIC)
+
+  def test_world_page_loads_the_module_entry_point_after_the_atlas(self):
+    with open(os.path.join(web_server.STATIC_DIR, 'world.html'), encoding='utf-8') as f:
+      page = f.read()
+    self.assertIn('<script type="module" src="/world/main.js"></script>', page)
+    self.assertLess(page.index('/world_atlas.js'), page.index('/world/main.js'))
+    self.assertNotIn('/world.js', page)
+    self.assertNotIn('/world_map.js', page)
+
+  def test_world_modules_are_served_as_javascript_with_a_vault(self):
+    with tempfile.TemporaryDirectory() as vault_dir:
+      server = self.start_additional_server(vault=vault_dir)
+      for name in ['main.js', 'api.js', 'storage.js', 'create.js', 'map.js']:
+        with self.subTest(name=name):
+          status, content_type, raw = self.fetch_with_headers(
+              f'/world/{name}', server.server_port)
+          self.assertEqual(status, 200)
+          self.assertEqual(content_type, 'text/javascript; charset=utf-8')
+          self.assertTrue(b'import ' in raw or b'export ' in raw)
+      status, content_type, _ = self.fetch_with_headers(
+          '/world_atlas.js', server.server_port)
+      self.assertEqual((status, content_type),
+                       (200, 'text/javascript; charset=utf-8'))
+
+  def test_world_modules_need_a_vault(self):
+    status, _, _ = self.fetch_with_headers('/world/main.js', self.port)
+    self.assertEqual(status, 404)
+
+  def test_the_old_world_scripts_are_gone(self):
+    with tempfile.TemporaryDirectory() as vault_dir:
+      server = self.start_additional_server(vault=vault_dir)
+      for path in ['/world.js', '/world_map.js']:
+        with self.subTest(path=path):
+          status, _, _ = self.fetch_with_headers(path, server.server_port)
+          self.assertEqual(status, 404)
+
+  def test_odd_module_names_are_not_served(self):
+    with tempfile.TemporaryDirectory() as vault_dir:
+      server = self.start_additional_server(vault=vault_dir)
+      for path in ['/world/Main.js', '/world/../web_server.py', '/world/%2e%2e/web_server.py',
+                   '/world/..%2fweb_server.py', '/world/nothing.js', '/world/main.js/',
+                   '/world/main.js%00.txt', '/world/', '/world//main.js']:
+        with self.subTest(path=path):
+          status, _, raw = self.fetch_with_headers(path, server.server_port)
+          self.assertEqual(status, 404)
+          self.assertNotIn(b'import ', raw)
 
   def test_a_traversal_in_the_url_finds_nothing(self):
     for path in ['/../file_manager.py', '/static/../serve.py', '/app.js/../../serve.py']:

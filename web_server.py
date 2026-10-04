@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+import re
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
 import web_routes
+import walkthrough_page
 
 from session import SessionStore
 from word_cache import CachingFileManager
@@ -22,12 +24,34 @@ STATIC = {
   '/index.html': ('index.html', 'text/html; charset=utf-8'),
   '/app.css': ('app.css', 'text/css; charset=utf-8'),
   '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+  '/embed.js': ('embed.js', 'text/javascript; charset=utf-8'),
   '/world': ('world.html', 'text/html; charset=utf-8'),
   '/world.html': ('world.html', 'text/html; charset=utf-8'),
-  '/world.js': ('world.js', 'text/javascript; charset=utf-8'),
-  '/world_map.js': ('world_map.js', 'text/javascript; charset=utf-8'),
+  '/world_atlas.js': ('world_atlas.js', 'text/javascript; charset=utf-8'),
   '/world.css': ('world.css', 'text/css; charset=utf-8'),
 }
+
+# The world desk's ES modules live in static/world/. Like the table above they
+# are served from an allowlist built once here, from the file names on disk,
+# never by joining URL text onto a directory. Only plain lowercase names are
+# eligible, so nothing else that lands in that folder is ever served.
+MODULE_DIR = os.path.join(STATIC_DIR, 'world')
+MODULE_NAME = re.compile(r'[a-z0-9_]+\.js')
+
+
+def module_routes(directory=MODULE_DIR):
+  try:
+    names = sorted(os.listdir(directory))
+  except OSError:
+    return {}
+  return {
+      f'/world/{name}': (f'world/{name}', 'text/javascript; charset=utf-8')
+      for name in names
+      if MODULE_NAME.fullmatch(name)
+      and os.path.isfile(os.path.join(directory, name))}
+
+
+STATIC.update(module_routes())
 
 MAX_BODY = 64 * 1024
 MAX_WORLD_BODY = 1024 * 1024
@@ -57,6 +81,11 @@ class Handler(BaseHTTPRequestHandler):
       return
 
     parsed = urlparse(self.path)
+    if method == 'GET' and parsed.path == '/walkthrough':
+      self.send_bytes(200, walkthrough_page.page(
+          vault_configured=self.server.vault is not None).encode('utf-8'),
+                      'text/html; charset=utf-8')
+      return
     if method == 'GET' and parsed.path in STATIC:
       if parsed.path.startswith('/world') and self.server.vault is None:
         self.send_json(404, {'ok': False, 'message': 'Not found.'})

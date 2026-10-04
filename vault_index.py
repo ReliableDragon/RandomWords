@@ -16,15 +16,35 @@ from vault import UnreadableSource
 
 DEFAULT_FOLDER_BIOMES = {"Bitters": "Bitter Return Mountains"}
 
-# Deliberately grammatical rather than topical. Corpus frequency handles
-# ordinary world words; terms such as water, forest, glass and medicine must
-# remain available as useful connective tissue.
+# Deliberately grammatical rather than topical: pronouns, auxiliaries,
+# determiners, conjunctions, prepositions and adverbs. Corpus frequency
+# handles ordinary world words; terms such as water, forest, day, light, glass
+# and medicine must remain available as useful connective tissue. Keep the
+# list alphabetised; curly apostrophes are folded before lookup.
 STOP_WORDS = frozenset({
-    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by",
-    "for", "from", "had", "has", "have", "he", "her", "his", "i", "in",
-    "is", "it", "its", "not", "of", "on", "or", "she", "that", "the",
-    "their", "them", "they", "this", "to", "was", "were", "which", "who",
-    "with", "you",
+    "a", "about", "above", "across", "after", "again", "against", "all",
+    "almost", "along", "already", "also", "although", "always", "am", "among",
+    "an", "and", "another", "any", "are", "around", "as", "at", "be",
+    "because", "been", "before", "being", "below", "between", "both", "but",
+    "by", "can", "can't", "cannot", "could", "couldn't", "did", "didn't",
+    "do", "does", "doesn't", "doing", "don't", "down", "during", "each",
+    "either", "else", "etc", "even", "ever", "every", "few", "for", "from",
+    "further", "had", "hadn't", "has", "hasn't", "have", "haven't", "having",
+    "he", "her", "here", "hers", "herself", "him", "himself", "his", "how",
+    "however", "i", "if", "in", "into", "is", "isn't", "it", "it's", "its",
+    "itself", "just", "less", "many", "may", "me", "might", "more", "most",
+    "much", "must", "my", "myself", "neither", "never", "no", "nor", "not",
+    "now", "of", "off", "often", "on", "once", "one", "one's", "only", "onto",
+    "or", "other", "others", "otherwise", "our", "ours", "ourselves", "out",
+    "over", "own", "per", "perhaps", "quite", "rather", "really", "several",
+    "shall", "she", "should", "shouldn't", "since", "so", "some", "such",
+    "than", "that", "that's", "the", "their", "theirs", "them", "themselves",
+    "then", "there", "there's", "therefore", "these", "they", "this", "those",
+    "though", "through", "thus", "to", "too", "under", "until", "up", "upon",
+    "us", "very", "was", "wasn't", "we", "were", "weren't", "what",
+    "when", "whenever", "where", "whether", "which", "while", "who", "whom",
+    "whose", "why", "will", "with", "within", "without", "won't", "would",
+    "wouldn't", "yet", "you", "your", "yours", "yourself", "yourselves",
 })
 _TERM = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 _FENCE = re.compile(r"(?ms)^```.*?^```\s*$")
@@ -66,6 +86,9 @@ class VaultIndex:
         self._last_stat = 0.0
         self._stamps: dict[str, tuple[int, int]] = {}
         self.ready = False
+        # Increments on every completed rebuild, so a client can tell that
+        # the snapshot behind an earlier response has been replaced.
+        self.generation = 0
         self.entries: dict[str, Entry] = {}
         self.titles: dict[str, tuple[str, ...]] = {}
         self.aliases: dict[str, tuple[str, ...]] = {}
@@ -100,6 +123,12 @@ class VaultIndex:
             if stale:
                 self.build(stamps)
         return True
+
+    def invalidate(self) -> None:
+        """Make the next report request rebuild after a vault mutation."""
+        with self._lock:
+            self._last_stat = 0.0
+            self.ready = False
 
     def build(self, stamps: dict[str, tuple[int, int]] | None = None) -> int:
         stamps = self.vault.stat_all() if stamps is None else stamps
@@ -179,14 +208,9 @@ class VaultIndex:
 
             region = self._taxonomy_region(path)
             if region:
-                mapped = self.folder_biomes.get(_key(region), region)
-                explicit = mapped if mapped.casefold().endswith(".md") else mapped + ".md"
-                candidates = {p for p in biome_paths if _key(p) == _key(explicit)}
-                name = _key(mapped.rsplit("/", 1)[-1].removesuffix(".md"))
-                candidates.update(p for p in titles.get(name, ()) if p in biome_paths)
-                candidates.update(p for p in aliases.get(name, ()) if p in biome_paths)
-                if len(candidates) == 1:
-                    add(next(iter(candidates)), "folder_fallback", region)
+                folder_biome = self._region_biome_in(region, biome_paths, titles, aliases)
+                if folder_biome:
+                    add(folder_biome, "folder_fallback", region)
             memberships[path] = tuple(found)
             direct_places[path] = tuple(immediate)
             # Keep the parsed object convenient for route serialization.
@@ -225,6 +249,7 @@ class VaultIndex:
             self.document_frequencies = dict(document_frequencies)
             self.average_document_length = average_document_length
             self._stamps = dict(stamps)
+            self.generation += 1
             self.ready = True
         return len(entries)
 
@@ -233,7 +258,7 @@ class VaultIndex:
         """Unicode body terms, excluding fenced code and grammar stop words."""
         body = _FENCE.sub(" ", body)
         return [term for match in _TERM.finditer(body)
-                if (term := _key(match.group())) not in STOP_WORDS]
+                if (term := _key(match.group())).replace("’", "'") not in STOP_WORDS]
 
     def bm25(self, text: str, limit: int | None = None) -> list[tuple[str, float, tuple[str, ...]]]:
         """Rank indexed entries against body text with positive BM25 IDF.
@@ -249,22 +274,69 @@ class VaultIndex:
             count = len(self.entries)
             average = self.average_document_length or 1.0
             rows = []
+            idf = {}
+            for term in query:
+                documents = self.document_frequencies.get(term, 0)
+                idf[term] = math.log(1.0 + (count - documents + 0.5) / (documents + 0.5))
             for path, frequencies in self.term_frequencies.items():
-                shared = tuple(sorted(query.keys() & frequencies.keys(),
-                                      key=lambda term: (-query[term] * frequencies[term], term)))
+                shared = query.keys() & frequencies.keys()
                 if not shared:
                     continue
                 length = self.document_lengths[path]
-                score = 0.0
-                for term in shared:
-                    frequency = frequencies[term]
-                    documents = self.document_frequencies[term]
-                    idf = math.log(1.0 + (count - documents + 0.5) / (documents + 0.5))
-                    norm = frequency + 1.2 * (1.0 - 0.75 + 0.75 * length / average)
-                    score += query[term] * idf * frequency * 2.2 / norm
-                rows.append((path, score, shared))
+                norm_length = 1.2 * (1.0 - 0.75 + 0.75 * length / average)
+                contributions = {
+                    term: query[term] * idf[term] * frequencies[term] * 2.2
+                          / (frequencies[term] + norm_length)
+                    for term in shared}
+                # Explanations lead with the terms that actually earned the
+                # match, not with whichever word is merely frequent.
+                ordered = tuple(sorted(shared,
+                                       key=lambda term: (-contributions[term], term)))
+                rows.append((path, sum(contributions[term] for term in ordered), ordered))
             rows.sort(key=lambda row: (-row[1], _key(self.entries[row[0]].title), row[0]))
             return rows if limit is None else rows[:limit]
+
+    def _region_biome_in(self, region: str, biome_paths, titles, aliases) -> str | None:
+        """The one biome a taxonomy region folder names, if it is unambiguous."""
+        mapped = self.folder_biomes.get(_key(region), region)
+        explicit = mapped if mapped.casefold().endswith(".md") else mapped + ".md"
+        candidates = {p for p in biome_paths if _key(p) == _key(explicit)}
+        name = _key(mapped.rsplit("/", 1)[-1].removesuffix(".md"))
+        candidates.update(p for p in titles.get(name, ()) if p in biome_paths)
+        candidates.update(p for p in aliases.get(name, ()) if p in biome_paths)
+        return next(iter(candidates)) if len(candidates) == 1 else None
+
+    def region_biome(self, region: str) -> str | None:
+        """Biome path for a ``Flora and Fauna/<class>/<region>`` or
+        ``Cultures/<region>`` folder name, using the same rule as membership."""
+        self.ensure_ready()
+        with self._lock:
+            biome_paths = {p for p in self.entries if p.startswith("Locations/Biomes/")}
+            return self._region_biome_in(region, biome_paths, self.titles, self.aliases)
+
+    def region_folders(self) -> dict[str, str]:
+        """Existing region folders that name a biome, as ``folder -> biome path``.
+
+        Only the declared taxonomy shapes ``Flora and Fauna/<class>/<region>``
+        and ``Cultures/<region>`` are considered, mapped exactly as folder
+        fallback membership maps them.
+        """
+        self.ensure_ready()
+        with self._lock:
+            biome_paths = {p for p in self.entries if p.startswith("Locations/Biomes/")}
+            found: dict[str, str] = {}
+            for path in self.entries:
+                region = self._taxonomy_region(path)
+                if not region:
+                    continue
+                parts = path.split("/")
+                folder = "/".join(parts[:3] if parts[0] == "Flora and Fauna" else parts[:2])
+                if folder in found:
+                    continue
+                biome = self._region_biome_in(region, biome_paths, self.titles, self.aliases)
+                if biome:
+                    found[folder] = biome
+            return found
 
     @staticmethod
     def _multimap(items) -> dict[str, tuple[str, ...]]:

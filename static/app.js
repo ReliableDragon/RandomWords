@@ -1380,10 +1380,32 @@
 
   // ---------- init ----------
 
+  // Set by the inline script in index.html when this page is the world desk's
+  // drawer. Same page, minus the header and the links to /world.
+  var embedded = document.documentElement.hasAttribute('data-embed');
+
+  function initEmbedded() {
+    // The desk's bench shares kept words through localStorage; follow it, so a
+    // word removed there is not resurrected by the next keep here.
+    window.addEventListener('storage', function () {
+      loadKept();
+      renderKept();
+    });
+    // Esc inside the frame cannot reach the desk's own listener.
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      window.parent.postMessage({ type: 'rw:generator-close' }, window.location.origin);
+    });
+  }
+
   function init() {
-    fetch('/api/world/tree').then(function (response) {
-      if (response.ok) document.getElementById('worldLink').hidden = false;
-    }).catch(function () {});
+    if (embedded) {
+      initEmbedded();
+    } else {
+      fetch('/api/world/tree').then(function (response) {
+        if (response.ok) document.getElementById('worldLink').hidden = false;
+      }).catch(function () {});
+    }
     loadKept();
     renderKept();
 

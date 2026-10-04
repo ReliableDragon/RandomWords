@@ -33,6 +33,15 @@ class DestinationConflict(Exception):
     super().__init__(f'A note already uses this destination: {self.existing_path}')
 
 
+class FolderConflict(Exception):
+  """A folder destination already exists or has an equivalent spelling."""
+
+  def __init__(self, path: str, existing_path: str | None = None):
+    self.path = path
+    self.existing_path = existing_path or path
+    super().__init__(f'A folder already uses this destination: {self.existing_path}')
+
+
 def _revision(data: bytes) -> str:
   return 'sha256:' + hashlib.sha256(data).hexdigest()
 
@@ -218,6 +227,37 @@ class VaultManager:
       data = text.encode('utf-8')
       self._write_atomic(path, data, exclusive=True)
       return {'path': path, 'revision': _revision(data)}
+
+  def create_folder(self, path: str) -> dict:
+    """Create one empty, canonical vault-relative directory.
+
+    The parent must already exist.  Checking sibling names by the same
+    normalized, case-insensitive key used for notes avoids creating folders
+    that cannot be distinguished by the desk on common vault filesystems.
+    """
+    if not isinstance(path, str) or not path:
+      raise InvalidPath('A vault folder name is required.')
+    full = self.resolve(path)
+    if self.relative(full) != path:
+      raise InvalidPath(f'Not a canonical vault path: {path}')
+    parent, name = os.path.dirname(full), os.path.basename(full)
+    if not os.path.isdir(parent):
+      raise InvalidPath('The parent vault folder does not exist.')
+    with self._lock('folder:' + _key(path)):
+      try:
+        siblings = os.listdir(parent)
+      except OSError as e:
+        raise UnreadableSource(f'Could not inspect {path}: {e}') from None
+      for sibling in siblings:
+        if _key(sibling) == _key(name):
+          raise FolderConflict(path, self.relative(os.path.join(parent, sibling)))
+      try:
+        os.mkdir(full)
+      except FileExistsError:
+        raise FolderConflict(path) from None
+      except OSError as e:
+        raise UnreadableSource(f'Could not create {path}: {e}') from None
+    return {'path': path}
 
   def _all_note_paths(self) -> list[str]:
     found = []
