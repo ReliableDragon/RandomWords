@@ -7,7 +7,9 @@ status=$?
 # The world desk's JavaScript modules are tested with Node's built-in runner
 # (no npm packages). Skipped, with a note, when node is not installed.
 if command -v node >/dev/null 2>&1; then
-  node --test js_tests/
+  # Pass each test file to Node so its native per-file process isolation
+  # protects fake DOM, timer and storage globals from neighboring suites.
+  node --test js_tests/*.test.mjs
   js_status=$?
   if [ "$js_status" -ne 0 ]; then
     status=$js_status
