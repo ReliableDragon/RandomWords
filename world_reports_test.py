@@ -1,10 +1,12 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from vault import VaultManager
 from vault_index import VaultIndex
-from world_reports import coverage_matrix, health_report, mention_counts, placement
+from world_reports import (coverage_matrix, health_report, mention_counts, placement,
+                           unlinked_mention_rows)
 
 
 class WorldReportsTest(unittest.TestCase):
@@ -174,6 +176,61 @@ class WorldReportsTest(unittest.TestCase):
             self.assertEqual(row["text"], "Aitrip")
         self.assertEqual([row["line"] for row in rows], [4, 5])
         self.assertNotIn("\r", rows[0]["context"])
+
+    def test_mention_enrichment_preserves_lf_spanning_bounds(self):
+        target = "Creatures/Aitrip.md"
+        source = "Creatures/Helay.md"
+        raw = "😀 prefix Ai\r\ntrip suffix\rnext\nAfter."
+        self.note(target, "A seed.")
+        self.note(source, raw)
+        index = VaultIndex(self.vault)
+        index.ensure_ready()
+        start = raw.index("Ai")
+        end = raw.index(" suffix")
+
+        def mentions(_raw, _index, _matcher, skip_path=None):
+            return [(start, end, target)] if skip_path == source else []
+
+        with patch("world_reports.find_unlinked_mentions", side_effect=mentions):
+            rows = unlinked_mention_rows(index)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["text"], "Ai\r\ntrip")
+        self.assertEqual(row["line"], 1)
+        self.assertEqual(row["context"], "😀 prefix Ai\r\ntrip suffix\rnext")
+        editor = raw.replace("\r\n", "\n").replace("\r", "\n").encode("utf-16-le")
+        self.assertEqual(editor[row["start"] * 2:row["end"] * 2].decode("utf-16-le"),
+                         "Ai\ntrip")
+
+    def test_many_same_line_mentions_keep_bounded_context_and_exact_offsets(self):
+        self.note("Creatures/Aitrip.md", "A seed.")
+        raw = "😀 " + ("river " * 30) + ("Aitrip " * 1000) + ("marsh " * 30)
+        self.note("Creatures/Many.md", raw)
+        index = VaultIndex(self.vault)
+        index.ensure_ready()
+        rows = [row for row in unlinked_mention_rows(index)
+                if row["source_path"] == "Creatures/Many.md"]
+        self.assertEqual(len(rows), 1000)
+        self.assertEqual({row["line"] for row in rows}, {1})
+        self.assertTrue(rows[0]["context"].endswith("…"))
+        self.assertTrue(rows[-1]["context"].startswith("…"))
+        editor = raw.encode("utf-16-le")
+        for row in (rows[0], rows[-1]):
+            self.assertEqual(
+                editor[row["start"] * 2:row["end"] * 2].decode("utf-16-le"),
+                "Aitrip",
+            )
+
+    def test_mention_context_keeps_exact_radius_and_ellipsis_boundaries(self):
+        self.note("Creatures/Aitrip.md", "A seed.")
+        raw = ("." * 101) + "Aitrip" + ("," * 101)
+        self.note("Creatures/Radius.md", raw)
+        index = VaultIndex(self.vault)
+        index.ensure_ready()
+        row = next(row for row in unlinked_mention_rows(index)
+                   if row["source_path"] == "Creatures/Radius.md")
+        self.assertEqual(row["context"],
+                         "…" + ("." * 100) + "Aitrip" + ("," * 100) + "…")
 
     def test_story_folder_notes_are_not_world_entries(self):
         self.note("Creatures/Aitrip.md", "A seed.")

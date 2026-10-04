@@ -5,6 +5,8 @@ from functools import lru_cache
 import re
 import unicodedata
 
+from entry import _WIKILINK, _fenced_block_spans
+
 
 def _key(value: str) -> str:
     return unicodedata.normalize("NFC", value).casefold()
@@ -15,7 +17,7 @@ def _utf16(value: str) -> int:
 
 
 def _excluded(text: str) -> list[tuple[int, int]]:
-    spans = [(m.start(), m.end()) for m in re.finditer(r"\[\[[^\]]+\]\]", text)]
+    spans = [(match.start(), match.end()) for match in _WIKILINK.finditer(text)]
     header_start = 1 if text.startswith("\ufeff") else 0
     if text.lstrip("\ufeff").startswith("---"):
         match = re.match(r"(?s)^\ufeff?---\s*\n.*?\n---(?:\s*\n|$)", text)
@@ -33,7 +35,7 @@ def _excluded(text: str) -> list[tuple[int, int]]:
             break
         spans.append((cursor, line_end))
         cursor = line_end
-    spans.extend((m.start(), m.end()) for m in re.finditer(r"(?ms)^```.*?^```\s*$", text))
+    spans.extend(_fenced_block_spans(text))
     return spans
 
 
@@ -104,17 +106,25 @@ def unlinked_mentions(raw: str, index, matcher: NameMatcher,
     are excluded, overlapping matches keep the longest, and the note named by
     ``skip_path`` (the note being scanned) never matches itself.
     """
-    excluded = _excluded(raw)
+    excluded = sorted(_excluded(raw))
     matches = [m for m in matcher.find(raw) if m[2] != skip_path]
-    occupied: list[tuple[int, int]] = []
+    excluded_index = 0
+    occupied_end = -1
     result = []
     for start, end, path in sorted(matches, key=lambda m: (m[0], -(m[1] - m[0]))):
-        if any(start < b and end > a for a, b in excluded + occupied):
+        while (excluded_index < len(excluded)
+               and excluded[excluded_index][1] <= start):
+            excluded_index += 1
+        if (excluded_index < len(excluded)
+                and start < excluded[excluded_index][1]
+                and end > excluded[excluded_index][0]):
+            continue
+        if start < occupied_end:
             continue
         expected = raw[start:end]
         if _key(expected) not in index.titles and _key(expected) not in index.aliases:
             continue
-        occupied.append((start, end))
+        occupied_end = end
         result.append((start, end, path))
     return result
 

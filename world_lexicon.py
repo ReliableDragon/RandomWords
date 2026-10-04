@@ -1,13 +1,14 @@
 """Coined-word lexicon and spelling-drift analysis for a vault index."""
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import Counter, defaultdict
 import re
 import threading
 import unicodedata
 import weakref
 
-from world_spans import editor_offset as _editor_offset
+from world_spans import editor_offsets
 
 # WORD_RE intentionally stays simple for corpus tokenization. Here combining
 # marks must stay attached so NFC-equivalent spellings share one lexicon row
@@ -115,13 +116,14 @@ def _replacement_for_inflection(spelling: str, source: str,
 
 
 
-def _occurrence_context(text: str, start: int, end: int,
+def _occurrence_context(text: str, newlines: list[int], start: int, end: int,
                         radius: int = 60) -> tuple[str, str]:
     """Return compact same-line context around an exact token span."""
-    line_start = text.rfind("\n", 0, start) + 1
-    line_end = text.find("\n", end)
-    if line_end < 0:
-        line_end = len(text)
+    line_index = bisect_left(newlines, start)
+    line_start = newlines[line_index - 1] + 1 if line_index else 0
+    after_index = bisect_left(newlines, end)
+    line_end = (newlines[after_index]
+                if after_index < len(newlines) else len(text))
     before = text[max(line_start, start - radius):start].lstrip("\r")
     after = text[end:min(line_end, end + radius)].rstrip("\r")
     if start - radius > line_start:
@@ -176,13 +178,20 @@ class WorldLexicon:
 
         for path, entry in self.index.entries.items():
             body_offset = len(entry.raw) - len(entry.body)
-            url_spans = [match.span() for match in _URL_RE.finditer(entry.body)]
+            offset = editor_offsets(entry.raw)
+            newlines = [position for position, character in enumerate(entry.raw)
+                        if character == "\n"]
+            urls = iter(_URL_RE.finditer(entry.body))
+            url = next(urls, None)
             for match in _LEXICON_WORD_RE.finditer(entry.body):
                 token = unicodedata.normalize("NFC", match.group())
+                while url is not None and url.end() <= match.start():
+                    url = next(urls, None)
+                in_url = (url is not None and url.start() < match.end()
+                          and match.start() < url.end())
                 if (not any(character.isalpha() for character in token)
                         or any(character.isdigit() for character in token)
-                        or any(start < match.end() and match.start() < end
-                               for start, end in url_spans)):
+                        or in_url):
                     continue
                 canonical = _key(token)
                 if any(stem in dictionary for stem in _inflection_stems(canonical)):
@@ -191,16 +200,16 @@ class WorldLexicon:
                 raw_uses[canonical][path] += 1
                 start = body_offset + match.start()
                 end = body_offset + match.end()
-                line = entry.raw.count("\n", 0, start) + 1
+                line = bisect_left(newlines, start) + 1
                 context_before, context_after = _occurrence_context(
-                    entry.raw, start, end)
+                    entry.raw, newlines, start, end)
                 raw_occurrences[canonical].append({
                     "path": path, "revision": entry.revision,
                     "spelling": match.group(), "line": line,
                     "context_before": context_before,
                     "context_after": context_after,
-                    "start": _editor_offset(entry.raw, start),
-                    "end": _editor_offset(entry.raw, end),
+                    "start": offset(start),
+                    "end": offset(end),
                 })
 
         # A novel base and its possessive/plural variants are one coinage,

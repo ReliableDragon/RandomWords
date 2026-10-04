@@ -1,9 +1,10 @@
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 from entry import parse
-from nearby import suggest, suggestions
+from nearby import NameMatcher, suggest, suggestions, unlinked_mentions
 from vault import VaultManager
 from vault_index import VaultIndex
 
@@ -78,6 +79,50 @@ class NearbyTest(unittest.TestCase):
         raw = "Origin: Seedname\nThemes: Alpha\n\nNo mention in the prose."
         named = suggestions(parse(raw, "Draft.md"), index, "4")["named_not_linked"]
         self.assertEqual(named, [])
+
+    def test_unlinked_overlap_sweep_preserves_order_and_boundaries(self):
+        raw = "[[Alpha]]Beta Alpha Beta Gamma Delta Tie"
+        matcher = NameMatcher([
+            ("Alpha", "Alpha.md"),
+            ("Beta", "Beta.md"),
+            ("Alpha Beta", "Alpha Beta.md"),
+            ("Beta Gamma Delta", "Beta Gamma Delta.md"),
+            ("Tie", "First Tie.md"),
+            ("Tie", "Second Tie.md"),
+        ])
+        index = SimpleNamespace(
+            titles={
+                "alpha": ("Alpha.md",), "beta": ("Beta.md",),
+                "alpha beta": ("Alpha Beta.md",),
+                "beta gamma delta": ("Beta Gamma Delta.md",),
+                "tie": ("First Tie.md", "Second Tie.md"),
+            },
+            aliases={},
+        )
+        alpha_beta = raw.index("Alpha Beta")
+        tie = raw.index("Tie")
+        self.assertEqual(unlinked_mentions(raw, index, matcher), [
+            (len("[[Alpha]]"), len("[[Alpha]]Beta"), "Beta.md"),
+            (alpha_beta, alpha_beta + len("Alpha Beta"), "Alpha Beta.md"),
+            (tie, tie + len("Tie"), "First Tie.md"),
+        ])
+
+        # A rejected longer candidate must not occupy the valid shorter span.
+        invalid_first = SimpleNamespace(find=lambda _raw: [
+            (0, len("Alpha Beta"), "Missing.md"),
+            (0, len("Alpha"), "Alpha.md"),
+        ])
+        valid_only = SimpleNamespace(titles={"alpha": ("Alpha.md",)}, aliases={})
+        self.assertEqual(unlinked_mentions("Alpha Beta", valid_only, invalid_first),
+                         [(0, len("Alpha"), "Alpha.md")])
+
+    def test_unclosed_links_and_fences_do_not_hide_a_later_name(self):
+        raw = ("[[" * 2000) + "\n" + ("```x\n" * 2000) + "Alpha"
+        matcher = NameMatcher([("Alpha", "Alpha.md")])
+        index = SimpleNamespace(titles={"alpha": ("Alpha.md",)}, aliases={})
+        start = raw.rindex("Alpha")
+        self.assertEqual(unlinked_mentions(raw, index, matcher),
+                         [(start, start + len("Alpha"), "Alpha.md")])
 
     def test_bm25_related_entries_skip_self_and_direct_links(self):
         self.note("Related.md", "Moon glass carries river light through the city.")

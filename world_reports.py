@@ -1,12 +1,13 @@
 """Pure JSON-ready coverage and housekeeping reports for a VaultIndex snapshot."""
 from __future__ import annotations
 
+from bisect import bisect_left
 import unicodedata
 
 from entry import _ASIDE
 from nearby import name_matcher, unlinked_mentions as find_unlinked_mentions
 from vault_index import Membership
-from world_spans import editor_offset
+from world_spans import editor_offsets
 
 
 # Which template under ``Templates/`` starts an entry of each kind. Kinds with
@@ -287,13 +288,20 @@ def unlinked_mention_rows(index) -> list[dict]:
             continue
         linked = {res.path for res in forward_links.get(path, ()) if res.path}
         raw = source.raw
-        for start, end, target in find_unlinked_mentions(raw, index, matcher,
-                                                         skip_path=path):
+        mentions = find_unlinked_mentions(raw, index, matcher, skip_path=path)
+        if not mentions:
+            continue
+        offset = editor_offsets(raw)
+        newlines = [position for position, character in enumerate(raw)
+                    if character == "\n"]
+        for start, end, target in mentions:
             if not is_world_entry(target, entries[target], story):
                 continue
-            line_start = raw.rfind("\n", 0, start) + 1
-            line_end = raw.find("\n", end)
-            line_end = len(raw) if line_end < 0 else line_end
+            line_index = bisect_left(newlines, start)
+            line_start = newlines[line_index - 1] + 1 if line_index else 0
+            after_index = bisect_left(newlines, end)
+            line_end = (newlines[after_index]
+                        if after_index < len(newlines) else len(raw))
             left = max(line_start, start - MENTION_CONTEXT_RADIUS)
             right = min(line_end, end + MENTION_CONTEXT_RADIUS)
             context = (("…" if left > line_start else "") + raw[left:right].strip()
@@ -303,8 +311,8 @@ def unlinked_mention_rows(index) -> list[dict]:
                 "source_path": path, "source_title": source.title,
                 "target_path": target, "target_title": entries[target].title,
                 "text": raw[start:end],
-                "start": editor_offset(raw, start), "end": editor_offset(raw, end),
-                "line": raw.count("\n", 0, start) + 1,
+                "start": offset(start), "end": offset(end),
+                "line": line_index + 1,
                 "context": context,
                 "source_revision": source.revision,
                 "already_linked": target in linked,
