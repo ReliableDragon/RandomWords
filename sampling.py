@@ -27,7 +27,9 @@ def sample_distinct_weighted(items: list[str], weights: list[int | float], k: in
   # Exponential(w) variates. Selecting the k items with smallest keys produces
   # exact probability-proportional-to-size sampling without replacement.
   scores = []
-  for item, weight in zip(items, weights, strict=False):
+  # Match zip's legacy truncation without its Python 3.10-only strict keyword.
+  for index in range(min(len(items), len(weights))):
+    item, weight = items[index], weights[index]
     w = max(weight, 1e-9)
     # 1.0 - random.random() ensures u is strictly in (0.0, 1.0].
     u = 1.0 - random.random()

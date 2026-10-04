@@ -22,6 +22,14 @@ class SamplingTest(unittest.TestCase):
       self.assertEqual(len(drawn), 4)
       self.assertEqual(len(set(drawn)), 4)
 
+  def test_unequal_lists_keep_legacy_truncate_to_shorter_behavior(self):
+    self.assertEqual(
+        set(sample_distinct_weighted(['a', 'b', 'ignored'], [1, 2], 2)),
+        {'a', 'b'})
+    self.assertEqual(
+        set(sample_distinct_weighted(['a', 'b'], [1, 2, 99], 2)),
+        {'a', 'b'})
+
   def test_k_greater_than_len_falls_back_to_replacement(self):
     items = ['a', 'b']
     weights = [1, 1]
