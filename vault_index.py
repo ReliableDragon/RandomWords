@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections import Counter
 import math
-import os
 import re
 import threading
 import time
@@ -107,7 +106,6 @@ class VaultIndex:
         now = time.monotonic()
         with self._lock:
             should_stat = not self.ready or now - self._last_stat >= self.stat_interval
-            current = self._stamps
         if not should_stat:
             return True
         with self._build_lock:
@@ -176,10 +174,11 @@ class VaultIndex:
             seen: set[str] = set()
             immediate: list[str] = []
 
-            def add(candidate: str, via: str, source: str | None):
-                if candidate in biome_paths and candidate not in seen:
-                    seen.add(candidate)
-                    found.append(Membership(candidate, via, source))
+            def add(candidate: str, via: str, source: str | None,
+                    _seen=seen, _found=found):
+                if candidate in biome_paths and candidate not in _seen:
+                    _seen.add(candidate)
+                    _found.append(Membership(candidate, via, source))
 
             def ancestry(candidate: str, root: bool, visiting: set[str], source: str):
                 if candidate in visiting:

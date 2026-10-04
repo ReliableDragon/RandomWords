@@ -1,5 +1,4 @@
 import unittest
-from unittest.mock import patch
 
 from command_manager import Context
 from weighted_word_cmd import WeightedWord

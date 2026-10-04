@@ -437,4 +437,4 @@ def is_world_entry(path: str, entry, story_folders=()) -> bool:
 
 def _structural(path: str) -> bool:
     """Exclude only template scaffolding from reports and coverage."""
-    return path.startswith("Templates/") or path.startswith(".obsidian/")
+    return path.startswith(("Templates/", ".obsidian/"))

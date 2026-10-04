@@ -6,7 +6,6 @@ import os
 import json
 import re
 import hashlib
-from urllib.parse import quote
 
 from entry import parse, render
 from vault import (DestinationConflict, FolderConflict, InvalidPath, RevisionConflict,

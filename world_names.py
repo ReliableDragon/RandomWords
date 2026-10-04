@@ -140,8 +140,8 @@ def names_without_entries(vault_index) -> list[dict]:
     counts = Counter()
     non_initial = set()
     for path in sorted(vault_index.entries):
-        if (path in _ROOT_REFERENCE_NOTES or path.startswith("Ideas/") or
-                path == "Templates" or path.startswith("Templates/")):
+        if (path in _ROOT_REFERENCE_NOTES or path == "Templates" or
+                path.startswith(("Ideas/", "Templates/"))):
             continue
         for occurrence in _occurrences(vault_index.entries[path].raw):
             if occurrence["key"] in known:

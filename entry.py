@@ -645,7 +645,7 @@ def render(entry: Entry, resolve_link=None, base_entries=None, base_resolve=None
             out.append("<p>" + inline(qm.group(1)) + "</p>")
             continue
         close_quote()
-        if line.startswith("    ") or line.startswith("\t"):
+        if line.startswith(("    ", "\t")):
             flush(); out.append("<pre><code>" + escape(line.lstrip(" \t")) + "</code></pre>")
         else:
             paragraph.append(line)

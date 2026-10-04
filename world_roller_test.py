@@ -26,7 +26,7 @@ class FixedRng:
     return values[0]
 
   def choices(self, values, weights, k):
-    self.seen_weights = dict(zip(values, weights))
+    self.seen_weights = dict(zip(values, weights, strict=False))
     return [max(values, key=lambda value: weights[values.index(value)])]
 
   def random(self):

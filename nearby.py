@@ -183,8 +183,7 @@ def _collect(draft, index, client_revision, suppressed_targets=frozenset()):
     direct_places = getattr(index, "direct_places", {})
     draft_direct_places = {
         path for path in direct_places.get(draft.path, ())
-        if (path.startswith("Locations/Places/") or
-            path.startswith("Locations/Settlements/"))
+        if path.startswith(("Locations/Places/", "Locations/Settlements/"))
     }
     # Drafts may not yet exist in the index, so resolve their From targets now.
     if not draft_biomes or not draft_direct_places:
@@ -209,8 +208,7 @@ def _collect(draft, index, client_revision, suppressed_targets=frozenset()):
         shared_biomes = draft_biomes & {m.path for m in index.memberships.get(path, ())}
         shared_places = draft_direct_places & {
             place for place in direct_places.get(path, ())
-            if (place.startswith("Locations/Places/") or
-                place.startswith("Locations/Settlements/"))
+            if place.startswith(("Locations/Places/", "Locations/Settlements/"))
         }
         if shared_biomes or shared_places:
             reasons = []
