@@ -264,7 +264,7 @@ test('a new draft opens with its prefill as text and saves through POST /new', a
       'From: [[Marsh]]\nOrigin: rainseed (a lantern), moss\n#flora\n\nFirst draft.\n\n## Habitat\n\n## Uses\n');
     assert.match($('placementSummary').textContent, /Places/);
     $('saveBtn').click();
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await new Promise((resolve) => realSetTimeout(resolve, 40));
     const post = calls.find((c) => c.method === 'POST' && c.path === '/api/world/new');
     assert.deepEqual(post.body, {
       folder: 'Places', title: 'Harbor of Reeds', body: $('entryText').value,
@@ -290,12 +290,12 @@ test('a missing prefill folder leaves the draft without a folder and asks for an
     editor.initEditor();
     create.initCreate();
     await create.openCreate({ folder: 'Gone' });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => realSetTimeout(resolve, 20));
     assert.equal(state.newDraft.folder, null);
     assert.equal($('placementPanel').hidden, false);
     assert.match($('placementNote').textContent, /"Gone" is not in this vault/);
     $('saveBtn').click();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => realSetTimeout(resolve, 10));
     assert.match($('placementIssue').textContent, /title/i);
   });
 });
@@ -372,7 +372,7 @@ const nearby = await import('../static/world/nearby.js');
 const autocomplete = await import('../static/world/autocomplete.js');
 const bench = await import('../static/world/bench.js');
 
-const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms || 0));
+const settle = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms || 0));
 
 test('Nearby shows suggestions and Link match rewrites the named text', async () => {
   const routes = entryRoutes();

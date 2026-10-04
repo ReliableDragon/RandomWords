@@ -24,7 +24,7 @@ const { draftBase, entryLinkTarget } = await import('../static/world/text.js');
 const { buildMarks, findDriftRanges, findWikilinks, problemLinks, linkStatusMap } =
   await import('../static/world/editor_marks.js');
 
-const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms || 0));
+const settle = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms || 0));
 const reply = (data) => ({ body: { ok: true, message: '', data } });
 const ENTRY = {
   path: 'People/Ada.md', revision: 'r1', generation: 5, text: 'Ada as she is on disk now.',

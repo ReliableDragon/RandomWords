@@ -21,7 +21,7 @@ const backdrop = await import('../static/world/backdrop.js');
 const linkStatus = await import('../static/world/link_status.js');
 const create = await import('../static/world/create.js');
 
-const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms || 0));
+const settle = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms || 0));
 const reply = (data) => ({ body: { ok: true, message: '', data } });
 
 const LINKS = [

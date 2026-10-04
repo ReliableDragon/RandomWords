@@ -4,13 +4,14 @@ import assert from 'node:assert/strict';
 import { findAll, installFakeDom, installFakeFetch, uninstallFakeDom } from './fake_dom.mjs';
 
 // Timers must not keep the test process alive (the editor polls every 12s).
-globalThis.setTimeout = ((real) => (fn, ms) => { const t = real(fn, ms); t.unref(); return t; })(globalThis.setTimeout);
+const realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms) => { const t = realSetTimeout(fn, ms); t.unref(); return t; };
 globalThis.setInterval = ((real) => (fn, ms) => { const t = real(fn, ms); t.unref(); return t; })(globalThis.setInterval);
 
 const search = await import('../static/world/search.js');
 const { state } = await import('../static/world/state.js');
 
-const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms || 0));
+const settle = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms || 0));
 
 test('snippetParts finds the marked match, falling back when offsets are wrong', () => {
   const row = { snippet: 'a quiet Reservoir here', snippet_match: [8, 17] };

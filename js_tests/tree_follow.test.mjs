@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 
 import { findAll, installFakeDom, installFakeFetch, uninstallFakeDom } from './fake_dom.mjs';
 
-globalThis.setTimeout = ((real) => (fn, ms) => { const t = real(fn, ms); t.unref(); return t; })(globalThis.setTimeout);
+const realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms) => { const t = realSetTimeout(fn, ms); t.unref(); return t; };
 globalThis.setInterval = ((real) => (fn, ms) => { const t = real(fn, ms); t.unref(); return t; })(globalThis.setInterval);
 
 const tree = await import('../static/world/tree.js');
 const { emit, Events } = await import('../static/world/events.js');
 const { state } = await import('../static/world/state.js');
 
-const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms || 0));
+const settle = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms || 0));
 const ok = (data) => ({ body: { ok: true, data } });
 
 function listing(words) {
