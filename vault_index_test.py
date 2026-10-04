@@ -1,9 +1,13 @@
+import ast
+import inspect
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import vault_index
 from vault import VaultManager
-from vault_index import VaultIndex
+from vault_index import STOP_WORDS, VaultIndex
 
 
 class VaultIndexTest(unittest.TestCase):
@@ -57,17 +61,22 @@ class VaultIndexTest(unittest.TestCase):
         self.assertEqual(index.memberships["People/Loaming Country/Not Taxonomy.md"], ())
 
     def test_tree_search_and_throttled_rebuild(self):
-        self.note("A/Alpha.md", "A peculiar river")
-        index = VaultIndex(self.vault, stat_interval=60)
-        index.ensure_ready()
-        self.assertEqual(index.tree()[0], {"path": "A", "name": "A", "type": "folder"})
-        self.assertEqual(index.search("river")[0]["path"], "A/Alpha.md")
-        self.note("B.md", "new")
-        index.ensure_ready()
-        self.assertNotIn("B.md", index.entries)
-        index._last_stat = 0
-        index.ensure_ready()
-        self.assertIn("B.md", index.entries)
+        clock = [10.0]
+        with patch.object(vault_index.time, "monotonic", side_effect=lambda: clock[0]):
+            self.note("A/Alpha.md", "A peculiar river")
+            index = VaultIndex(self.vault, stat_interval=60)
+            index.ensure_ready()
+            self.assertEqual(index.tree()[0], {"path": "A", "name": "A", "type": "folder"})
+            self.assertEqual(index.search("river")[0]["path"], "A/Alpha.md")
+            self.note("B.md", "new")
+            index.ensure_ready()
+            self.assertNotIn("B.md", index.entries)
+            clock[0] = 69.999
+            index.ensure_ready()
+            self.assertNotIn("B.md", index.entries)
+            clock[0] = 70.0
+            index.ensure_ready()
+            self.assertIn("B.md", index.entries)
 
     def test_bm25_is_body_only_positive_and_deterministic(self):
         self.note("A.md", "Origin: moonstone\n\nriver glass river")
@@ -97,6 +106,77 @@ class VaultIndexTest(unittest.TestCase):
         self.assertEqual(memberships[0].source_path, "Locations/Settlements/Town.md")
         self.assertEqual(index.direct_places["People/Visitor.md"], (
             "Locations/Settlements/Town.md", "Locations/Biomes/Class/Fenaya.md"))
+
+    def test_generation_increases_with_each_rebuild(self):
+        self.note("A.md", "first")
+        index = VaultIndex(self.vault, stat_interval=0)
+        self.assertEqual(index.generation, 0)
+        index.ensure_ready()
+        self.assertEqual(index.generation, 1)
+        index.ensure_ready()
+        self.assertEqual(index.generation, 1)
+        index.invalidate()
+        index.ensure_ready()
+        self.assertEqual(index.generation, 2)
+        self.note("B.md", "second")
+        index.ensure_ready()
+        self.assertEqual(index.generation, 3)
+
+    def test_shared_terms_are_ordered_by_bm25_contribution_then_alphabetically(self):
+        for number in range(6):
+            self.note(f"Common{number}.md", "river banks")
+        self.note("Target.md", "river luminite")
+        self.note("Pair.md", "borax aurum")
+        index = VaultIndex(self.vault)
+        index.ensure_ready()
+        rows = {path: shared for path, _score, shared in
+                index.bm25("river river river luminite borax aurum")}
+        # The rare word outweighs a thrice-repeated common one.
+        self.assertEqual(rows["Target.md"], ("luminite", "river"))
+        # Equal contributions fall back to alphabetical order.
+        self.assertEqual(rows["Pair.md"], ("aurum", "borax"))
+
+    def test_stop_words_drop_function_words_but_keep_world_nouns(self):
+        terms = VaultIndex.terms(
+            "It will perhaps rain when the water would rise in the forest by day; "
+            "one’s light, it's just so very bright and there are these those.")
+        self.assertEqual(terms, ["rain", "water", "rise", "forest", "day", "light", "bright"])
+        for word in ("water", "forest", "day", "light", "glass", "river", "medicine"):
+            self.assertNotIn(word, STOP_WORDS)
+        literal = next(node.value.args[0] for node in ast.parse(
+            inspect.getsource(vault_index)).body
+            if isinstance(node, ast.Assign)
+            and getattr(node.targets[0], "id", None) == "STOP_WORDS")
+        written = [element.value for element in literal.elts]
+        self.assertEqual(written, sorted(written))
+        self.assertEqual(len(written), len(set(written)))
+        for word in ("will", "would", "can", "could", "may", "might", "must", "shall",
+                     "should", "if", "so", "than", "then", "there", "these", "those",
+                     "what", "when", "where", "while", "into", "onto", "about", "also",
+                     "only", "very", "more", "most", "some", "any", "all", "each", "every",
+                     "other", "such", "even", "again", "perhaps", "does", "did", "do",
+                     "doing", "just", "one's", "own", "many", "much", "few", "our", "we",
+                     "us", "me", "my", "your", "him", "himself", "herself", "itself",
+                     "themselves", "being", "because", "though", "although", "until",
+                     "upon", "yet", "etc"):
+            self.assertIn(word, STOP_WORDS)
+
+    def test_region_folders_map_existing_taxonomy_folders_to_biomes(self):
+        self.note("Locations/Biomes/Grass/Loaming Country.md", "region")
+        self.note("Locations/Biomes/Mountain/Bitter Return Mountains.md", "region")
+        self.note("Flora and Fauna/Grassland/Loaming Country/Fox.md", "fox")
+        self.note("Flora and Fauna/Mountains/Bitters/Goat.md", "goat")
+        self.note("Flora and Fauna/Mountains/Nowhere/Owl.md", "owl")
+        self.note("Cultures/Loaming Country/Custom.md", "custom")
+        self.note("People/Loaming Country/Person.md", "not a region")
+        index = VaultIndex(self.vault)
+        self.assertEqual(index.region_folders(), {
+            "Flora and Fauna/Grassland/Loaming Country":
+                "Locations/Biomes/Grass/Loaming Country.md",
+            "Flora and Fauna/Mountains/Bitters":
+                "Locations/Biomes/Mountain/Bitter Return Mountains.md",
+            "Cultures/Loaming Country": "Locations/Biomes/Grass/Loaming Country.md",
+        })
 
 
 if __name__ == "__main__":

@@ -5,11 +5,11 @@ from collections import Counter
 import re
 import unicodedata
 
+from entry import _WIKILINK, _fenced_block_spans
 from file_manager import WORD_RE
+from world_spans import editor_offsets
 
 
-_WIKILINK = re.compile(r"\[\[[^\]]+\]\]")
-_FENCE = re.compile(r"(?ms)^```.*?^```\s*$")
 _TAG = re.compile(r"(?<![\w])#[\w-]+", re.UNICODE)
 _HEADING = re.compile(r"(?m)^\s{0,3}#{1,6}\s+.*$")
 _COMMON_SINGLE = frozenset({
@@ -30,10 +30,6 @@ _ROOT_REFERENCE_NOTES = frozenset({
 
 def _key(value: str) -> str:
     return unicodedata.normalize("NFC", value).casefold()
-
-
-def _utf16(value: str) -> int:
-    return len(value.encode("utf-16-le")) // 2
 
 
 def _metadata_spans(text: str) -> list[tuple[int, int]]:
@@ -58,7 +54,10 @@ def _metadata_spans(text: str) -> list[tuple[int, int]]:
 def _masked(text: str) -> str:
     chars = list(text)
     spans = _metadata_spans(text)
-    for pattern in (_WIKILINK, _FENCE, _TAG, _HEADING):
+    # Wikilinks and code fences use entry's linear scanners: the equivalent
+    # regular expressions are quadratic on unclosed "[[" or "```" lines.
+    spans.extend(_fenced_block_spans(text))
+    for pattern in (_WIKILINK, _TAG, _HEADING):
         spans.extend((match.start(), match.end()) for match in pattern.finditer(text))
     for start, end in spans:
         for offset in range(start, end):
@@ -75,12 +74,17 @@ def _proper(token: str) -> bool:
 
 
 def _sentence_start(text: str, start: int) -> bool:
-    prefix = text[:start].rstrip()
-    return not prefix or prefix[-1] in ".!?" or "\n" in text[len(prefix):start]
+    # Only the whitespace just before ``start`` is read, not the whole prefix.
+    end = start
+    while end and text[end - 1].isspace():
+        end -= 1
+    return not end or text[end - 1] in ".!?" or "\n" in text[end:start]
 
 
 def _occurrences(text: str) -> list[dict]:
     masked = _masked(text)
+    offset = editor_offsets(text)
+    line, line_start, counted, context = 1, 0, 0, None
     tokens = [match for match in WORD_RE.finditer(masked) if _proper(match.group())]
     runs = []
     index = 0
@@ -97,19 +101,28 @@ def _occurrences(text: str) -> list[dict]:
             following += 1
         start, end = run[0].start(), run[-1].end()
         phrase = text[start:end]
-        line_start = text.rfind("\n", 0, start) + 1
-        line_end = text.find("\n", end)
-        if line_end < 0:
-            line_end = len(text)
+        # Lines are counted from the previous name, and names on one source
+        # line share its context, so no search rereads the text before them.
+        newlines = text.count("\n", counted, start)
+        if newlines:
+            line += newlines
+            line_start = text.rfind("\n", counted, start) + 1
+            context = None
+        counted = start
+        if context is None:
+            line_end = text.find("\n", line_start)
+            if line_end < 0:
+                line_end = len(text)
+            context = text[line_start:line_end].strip()
         runs.append({
             "phrase": phrase,
             "key": _key(phrase),
             "words": len(run),
             "sentence_start": _sentence_start(masked, start),
-            "start": _utf16(text[:start]),
-            "end": _utf16(text[:end]),
-            "line": text.count("\n", 0, start) + 1,
-            "context": text[line_start:line_end].strip(),
+            "start": offset(start),
+            "end": offset(end),
+            "line": line,
+            "context": context,
         })
         index = following
     return runs
@@ -127,8 +140,8 @@ def names_without_entries(vault_index) -> list[dict]:
     counts = Counter()
     non_initial = set()
     for path in sorted(vault_index.entries):
-        if (path in _ROOT_REFERENCE_NOTES or path.startswith("Ideas/") or
-                path == "Templates" or path.startswith("Templates/")):
+        if (path in _ROOT_REFERENCE_NOTES or path == "Templates" or
+                path.startswith(("Ideas/", "Templates/"))):
             continue
         for occurrence in _occurrences(vault_index.entries[path].raw):
             if occurrence["key"] in known:

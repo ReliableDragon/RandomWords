@@ -36,7 +36,7 @@ class FakeFiles:
     def get_words(self, path):
         self.calls += 1
         assert path == "dicts/450k_words.txt"
-        return ["ordinary"]
+        return ["ordinary", "adulation"]
 
 
 class FakeWordIndex:
@@ -94,6 +94,109 @@ class WorldLexiconTest(unittest.TestCase):
         pairs = {(row["from"], row["to"]) for row in result["drift"]}
         self.assertIn(("alzerati", "alzarati"), pairs)
         self.assertNotIn(("cats", "cat's"), pairs)
+        drift = next(row for row in result["drift"]
+                     if row["from"] == "alzerati" and row["to"] == "alzarati")
+        self.assertEqual(drift["occurrences"], [{
+            "path": "B.md", "revision": "", "spelling": "Alzerati",
+            "replacement": "Alzarati",
+            "line": 1, "context_before": "",
+            "context_after": " cat's Unilux unilux",
+            "start": 0, "end": 8,
+        }])
+
+    def test_occurrence_context_is_centered_and_truncated(self):
+        prefix = "a" * 80 + " "
+        suffix = " " + "z" * 80
+        self.index.entries = {
+            "A.md": parse("Alzarati alzarati", "A.md"),
+            "B.md": parse(prefix + "Alzerati" + suffix, "B.md"),
+        }
+        self.index.memberships = {"A.md": (), "B.md": ()}
+        drift = next(row for row in WorldLexicon(self.index, self.files).query()["drift"]
+                     if row["from"] == "alzerati")
+        occurrence = drift["occurrences"][0]
+        self.assertEqual(len(occurrence["context_before"]), 61)
+        self.assertTrue(occurrence["context_before"].startswith("…"))
+        self.assertEqual(len(occurrence["context_after"]), 61)
+        self.assertTrue(occurrence["context_after"].endswith("…"))
+
+    def test_drift_suggestions_preserve_occurrence_case(self):
+        self.index.entries = {
+            "A.md": parse("alzarati alzarati alzarati alzarati", "A.md"),
+            "B.md": parse("alzerati Alzerati ALZERATI", "B.md"),
+        }
+        self.index.memberships = {"A.md": (), "B.md": ()}
+        drift = next(row for row in WorldLexicon(self.index, self.files).query()["drift"]
+                     if row["from"] == "alzerati")
+        self.assertEqual([row["replacement"] for row in drift["occurrences"]],
+                         ["alzarati", "Alzarati", "ALZARATI"])
+
+    def test_occurrence_offsets_are_textarea_utf16_offsets_after_headers(self):
+        self.index.entries = {
+            "A.md": parse("Origin: seed\n\nAlzarati alzarati", "A.md", "rev-a"),
+            "B.md": parse("Origin: seed\n\n\U0001f30a Alzerati", "B.md", "rev-b"),
+        }
+        self.index.memberships = {"A.md": (), "B.md": ()}
+        drift = next(row for row in WorldLexicon(self.index, self.files).query()["drift"]
+                     if row["from"] == "alzerati")
+        occurrence = drift["occurrences"][0]
+        self.assertEqual(occurrence["path"], "B.md")
+        self.assertEqual(occurrence["revision"], "rev-b")
+        self.assertEqual(occurrence["line"], 3)
+        raw = self.index.entries["B.md"].raw
+        self.assertEqual(raw.encode("utf-16-le")[:occurrence["start"] * 2]
+                         .decode("utf-16-le"), "Origin: seed\n\n\U0001f30a ")
+
+    def test_occurrence_offsets_match_normalized_textarea_newlines(self):
+        self.index.entries = {
+            "A.md": parse("Alzarati alzarati", "A.md", "rev-a"),
+            "B.md": parse("Origin: seed\r\n\r\nAlzerati", "B.md", "rev-b"),
+        }
+        self.index.memberships = {"A.md": (), "B.md": ()}
+        drift = next(row for row in WorldLexicon(self.index, self.files).query()["drift"]
+                     if row["from"] == "alzerati")
+        occurrence = drift["occurrences"][0]
+        editor_text = self.index.entries["B.md"].raw.replace("\r\n", "\n")
+        self.assertEqual(editor_text[occurrence["start"]:occurrence["end"]], "Alzerati")
+
+    def test_occurrence_lines_context_and_offsets_preserve_lf_only_rules(self):
+        prefix = "1" * 61
+        suffix = "2" * 61
+        raw = "Origin: seed\r\n\r\n😀 " + prefix + " Alzerati " + suffix + "\rAlzerati"
+        self.index.entries = {
+            "A.md": parse("Alzarati Alzarati Alzarati", "A.md"),
+            "B.md": parse(raw, "B.md"),
+        }
+        self.index.memberships = {"A.md": (), "B.md": ()}
+        drift = next(row for row in WorldLexicon(self.index, self.files).query()["drift"]
+                     if row["from"] == "alzerati")
+        occurrences = drift["occurrences"]
+        self.assertEqual([row["line"] for row in occurrences], [3, 3])
+        self.assertTrue(occurrences[0]["context_before"].startswith("…"))
+        self.assertTrue(occurrences[0]["context_after"].endswith("…"))
+        self.assertIn("\r", occurrences[1]["context_before"])
+        editor = raw.replace("\r\n", "\n").replace("\r", "\n").encode("utf-16-le")
+        for occurrence in occurrences:
+            self.assertEqual(
+                editor[occurrence["start"] * 2:occurrence["end"] * 2]
+                .decode("utf-16-le"),
+                "Alzerati",
+            )
+
+    def test_repeated_coinage_occurrences_keep_first_and_last_source_spans(self):
+        rare = "Alzerati " * 1000
+        self.index.entries = {
+            "A.md": parse("Alzarati " * 1001, "A.md"),
+            "B.md": parse(rare, "B.md"),
+        }
+        self.index.memberships = {"A.md": (), "B.md": ()}
+        drift = next(row for row in WorldLexicon(self.index, self.files).query()["drift"]
+                     if row["from"] == "alzerati")
+        occurrences = drift["occurrences"]
+        self.assertEqual(len(occurrences), 1000)
+        self.assertEqual((occurrences[0]["start"], occurrences[0]["end"]), (0, 8))
+        self.assertEqual(rare[occurrences[-1]["start"]:occurrences[-1]["end"]],
+                         "Alzerati")
 
     def test_searching_rare_spelling_keeps_full_vocabulary_drift_target(self):
         result = WorldLexicon(self.index, self.files).query(q="alzerati")
@@ -113,17 +216,73 @@ class WorldLexiconTest(unittest.TestCase):
         self.assertEqual(rows[0]["word"], "élan")
         self.assertEqual(rows[0]["count"], 3)
 
-    def test_drift_ignores_digits_and_equal_frequency_has_no_direction(self):
+    def test_ignores_url_fragments_and_alphanumeric_tokens(self):
         self.index.entries = {
-            "A.md": parse("1hp php php easten", "A.md"),
+            "A.md": parse("1hp 40mph 4hhlgrb9qae3 https://example.test/Unilux", "A.md"),
+        }
+        self.index.memberships = {"A.md": ()}
+        result = WorldLexicon(self.index, self.files).query()
+        words = {row["word"] for row in result["entries"]}
+        self.assertFalse({"1hp", "40mph", "4hhlgrb9qae3", "https", "example", "test", "unilux"} & words)
+
+    def test_url_sweep_preserves_strict_overlap_and_existing_url_scope(self):
+        raw = (
+            ("Alzarati " * 6)
+            + "https://x.test/Alzerati "
+            + "www.x.test/Alzerati,Attached "
+            + "Alzerati ftp://x.test/Alzerati bare.test/Alzerati"
+        )
+        self.index.entries = {"A.md": parse(raw, "A.md")}
+        self.index.memberships = {"A.md": ()}
+        result = WorldLexicon(self.index, self.files).query()
+        drift = next(row for row in result["drift"]
+                     if row["from"] == "alzerati" and row["to"] == "alzarati")
+        occurrences = drift["occurrences"]
+        self.assertEqual(len(occurrences), 3)
+        self.assertEqual([raw[row["start"]:row["end"]] for row in occurrences],
+                         ["Alzerati", "Alzerati", "Alzerati"])
+        skipped = [raw.index("Alzerati", raw.index("https://")),
+                   raw.index("Alzerati", raw.index("www."))]
+        self.assertTrue(all(start not in {row["start"] for row in occurrences}
+                            for start in skipped))
+        words = {row["word"] for row in result["entries"]}
+        self.assertNotIn("attached", words)
+        self.assertIn("ftp", words)
+
+    def test_dictionary_inflections_are_not_coinages(self):
+        self.index.entries = {"A.md": parse("adulation adulations", "A.md")}
+        self.index.memberships = {"A.md": ()}
+        words = {row["word"] for row in WorldLexicon(self.index, self.files).query()["entries"]}
+        self.assertNotIn("adulations", words)
+
+    def test_groups_novel_possessives_and_preserves_drift_replacements(self):
+        self.index.entries = {
+            "A.md": parse("Batter Batter Batter", "A.md"),
+            "B.md": parse("Battar Battar's", "B.md"),
+        }
+        self.index.memberships = {"A.md": (), "B.md": ()}
+        service = WorldLexicon(self.index, self.files)
+        result = service.query(q="battar's")
+        self.assertEqual([row["word"] for row in result["entries"]], ["battar"])
+        entry = result["entries"][0]
+        self.assertEqual(entry["count"], 2)
+        self.assertEqual(entry["spellings"], [
+            {"spelling": "Battar", "count": 1},
+            {"spelling": "Battar's", "count": 1},
+        ])
+        drift = next(row for row in result["drift"]
+                     if row["from"] == "battar" and row["to"] == "batter")
+        self.assertEqual([row["replacement"] for row in drift["occurrences"]],
+                         ["Batter", "Batter's"])
+
+    def test_drift_ignores_equal_frequency_variants(self):
+        self.index.entries = {
+            "A.md": parse("easten", "A.md"),
             "B.md": parse("easton", "B.md"),
         }
         self.index.memberships = {"A.md": (), "B.md": ()}
-        result = WorldLexicon(self.index, self.files).query()
-        words = {row["word"] for row in result["entries"]}
-        self.assertIn("1hp", words)
-        pairs = {(row["from"], row["to"]) for row in result["drift"]}
-        self.assertNotIn(("1hp", "php"), pairs)
+        pairs = {(row["from"], row["to"])
+                 for row in WorldLexicon(self.index, self.files).query()["drift"]}
         self.assertNotIn(("easten", "easton"), pairs)
         self.assertNotIn(("easton", "easten"), pairs)
 

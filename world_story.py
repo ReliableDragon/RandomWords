@@ -88,7 +88,7 @@ def parse_scene(raw):
     rows = [(line.rstrip("\r\n"), i + 2) for i, line in enumerate(lines[1:close])]
     values, supported = {}, True
     current = None
-    for row, line_number in rows:
+    for row, _line_number in rows:
         match = _KEY.match(row)
         if match:
             current, value = match.group(1).lower(), match.group(2)

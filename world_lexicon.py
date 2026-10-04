@@ -1,12 +1,23 @@
 """Coined-word lexicon and spelling-drift analysis for a vault index."""
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import Counter, defaultdict
+import re
 import threading
 import unicodedata
 import weakref
 
-from file_manager import WORD_RE
+from world_spans import editor_offsets
+
+# WORD_RE intentionally stays simple for corpus tokenization. Here combining
+# marks must stay attached so NFC-equivalent spellings share one lexicon row
+# without losing source offsets needed by the editor.
+_LEXICON_WORD_RE = re.compile(
+    r"[^\W_](?:[^\W_]|[\u0300-\u036f])*(?:['’][^\W_](?:[^\W_]|[\u0300-\u036f])*)*",
+    re.UNICODE,
+)
+_URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 
 
 _dictionary_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -49,22 +60,89 @@ def _distance(left: str, right: str, maximum: int = 2) -> int:
 
 
 def _inflection_stems(word: str) -> set[str]:
+    """Return conservative English inflection candidates, including *word*."""
     stems = {word}
-    if word.endswith(("'s", "’s")) and len(word) > 2:
+    if word.endswith(("'s", "’s")) and len(word) > 3:
         stems.add(word[:-2])
-    if word.endswith("ies") and len(word) > 3:
+    if word.endswith("ies") and len(word) > 4:
         stems.add(word[:-3] + "y")
-    if word.endswith("es") and len(word) > 2:
+    if word.endswith("es") and len(word) > 4:
         stems.add(word[:-2])
         # hero/heroes and similar forms.
         stems.add(word[:-1])
-    if word.endswith("s") and not word.endswith("ss") and len(word) > 1:
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
         stems.add(word[:-1])
+    if word.endswith("ied") and len(word) > 4:
+        stems.add(word[:-3] + "y")
+    if word.endswith("ed") and len(word) > 4:
+        stem = word[:-2]
+        stems.add(stem)
+        stems.add(stem + "e")
+        if len(stem) > 3 and stem[-1:] == stem[-2:-1]:
+            stems.add(stem[:-1])
+    if word.endswith("ing") and len(word) > 5:
+        stem = word[:-3]
+        stems.add(stem)
+        stems.add(stem + "e")
+        if len(stem) > 3 and stem[-1:] == stem[-2:-1]:
+            stems.add(stem[:-1])
     return stems
 
 
 def _ordinary_inflection(left: str, right: str) -> bool:
     return bool(_inflection_stems(left) & _inflection_stems(right))
+
+
+def _coinage_key(word: str, observed_words: set[str]) -> str:
+    """Group a novel inflection with its separately observed base spelling."""
+    candidates = _inflection_stems(word) - {word}
+    bases = sorted(candidate for candidate in candidates
+                   if candidate in observed_words)
+    return bases[0] if bases else word
+
+
+def _replacement_for_inflection(spelling: str, source: str,
+                                replacement: str) -> str:
+    """Keep a possessive or regular plural suffix when staging a correction."""
+    folded = _key(spelling)
+    suffix = ""
+    if folded.endswith(("'s", "’s")) and folded[:-2] == source:
+        suffix = spelling[-2:]
+    elif folded.endswith("s") and folded[:-1] == source:
+        suffix = spelling[-1:]
+    return _match_case(spelling[:-len(suffix)] if suffix else spelling,
+                       replacement) + suffix
+
+
+
+
+def _occurrence_context(text: str, newlines: list[int], start: int, end: int,
+                        radius: int = 60) -> tuple[str, str]:
+    """Return compact same-line context around an exact token span."""
+    line_index = bisect_left(newlines, start)
+    line_start = newlines[line_index - 1] + 1 if line_index else 0
+    after_index = bisect_left(newlines, end)
+    line_end = (newlines[after_index]
+                if after_index < len(newlines) else len(text))
+    before = text[max(line_start, start - radius):start].lstrip("\r")
+    after = text[end:min(line_end, end + radius)].rstrip("\r")
+    if start - radius > line_start:
+        before = "…" + before
+    if end + radius < line_end:
+        after += "…"
+    return before, after
+
+
+def _match_case(source: str, replacement: str) -> str:
+    """Carry the common casing style of an occurrence to its suggestion."""
+    letters = "".join(character for character in source if character.isalpha())
+    if letters and letters.isupper():
+        return replacement.upper()
+    if letters and letters.islower():
+        return replacement.lower()
+    if source[:1].isupper() and source[1:].islower():
+        return replacement[:1].upper() + replacement[1:].lower()
+    return replacement
 
 
 class WorldLexicon:
@@ -94,18 +172,58 @@ class WorldLexicon:
               once: bool = False) -> dict:
         self.index.ensure_ready()
         dictionary = _dictionary(self.library_files)
-        spellings: dict[str, Counter[str]] = defaultdict(Counter)
-        uses: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        raw_spellings: dict[str, Counter[str]] = defaultdict(Counter)
+        raw_uses: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        raw_occurrences: dict[str, list[dict]] = defaultdict(list)
 
         for path, entry in self.index.entries.items():
-            for token in WORD_RE.findall(unicodedata.normalize("NFC", entry.body)):
-                if not any(character.isalpha() for character in token):
+            body_offset = len(entry.raw) - len(entry.body)
+            offset = editor_offsets(entry.raw)
+            newlines = [position for position, character in enumerate(entry.raw)
+                        if character == "\n"]
+            urls = iter(_URL_RE.finditer(entry.body))
+            url = next(urls, None)
+            for match in _LEXICON_WORD_RE.finditer(entry.body):
+                token = unicodedata.normalize("NFC", match.group())
+                while url is not None and url.end() <= match.start():
+                    url = next(urls, None)
+                in_url = (url is not None and url.start() < match.end()
+                          and match.start() < url.end())
+                if (not any(character.isalpha() for character in token)
+                        or any(character.isdigit() for character in token)
+                        or in_url):
                     continue
                 canonical = _key(token)
-                if canonical in dictionary:
+                if any(stem in dictionary for stem in _inflection_stems(canonical)):
                     continue
-                spellings[canonical][unicodedata.normalize("NFC", token)] += 1
-                uses[canonical][path] += 1
+                raw_spellings[canonical][token] += 1
+                raw_uses[canonical][path] += 1
+                start = body_offset + match.start()
+                end = body_offset + match.end()
+                line = bisect_left(newlines, start) + 1
+                context_before, context_after = _occurrence_context(
+                    entry.raw, newlines, start, end)
+                raw_occurrences[canonical].append({
+                    "path": path, "revision": entry.revision,
+                    "spelling": match.group(), "line": line,
+                    "context_before": context_before,
+                    "context_after": context_after,
+                    "start": offset(start),
+                    "end": offset(end),
+                })
+
+        # A novel base and its possessive/plural variants are one coinage,
+        # while the original spellings and occurrence offsets remain intact.
+        observed_words = set(raw_spellings)
+        spellings: dict[str, Counter[str]] = defaultdict(Counter)
+        uses: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        occurrences: dict[str, list[dict]] = defaultdict(list)
+        for word, variants in raw_spellings.items():
+            canonical = _coinage_key(word, observed_words)
+            spellings[canonical].update(variants)
+            for path, count in raw_uses[word].items():
+                uses[canonical][path] += count
+            occurrences[canonical].extend(raw_occurrences[word])
 
         self._ensure_which()
 
@@ -167,12 +285,19 @@ class WorldLexicon:
                     continue
                 distance = _distance(rare, common)
                 if distance <= 2 and (rare in selected or common in selected):
+                    rare_occurrences = [
+                        {**occurrence,
+                         "replacement": _replacement_for_inflection(
+                             occurrence["spelling"], rare, common)}
+                        for occurrence in occurrences[rare]
+                    ]
                     drift.append({"from": rare, "to": common,
                                   "distance": distance,
                                   "from_count": counts[rare],
                                   "to_count": counts[common],
                                   "from_paths": sorted(uses[rare]),
-                                  "to_paths": sorted(uses[common])})
+                                  "to_paths": sorted(uses[common]),
+                                  "occurrences": rare_occurrences})
         drift.sort(key=lambda row: (row["distance"], row["from"], row["to"]))
         return {"entries": entries, "drift": drift}
 
